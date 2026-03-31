@@ -94,6 +94,9 @@ export default function Verify() {
                 <input key={i} ref={(el) => (inputRefs.current[i] = el)} type="text" inputMode="numeric" maxLength={1} value={otp[i]} onChange={(e) => handleChange(i, e.target.value)} onKeyDown={(e) => handleKeyDown(i, e)} onPaste={handlePaste} className="otp-input" required />
               ))}
             </div>
+            <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
+              {loading ? 'Verifying...' : 'Verify Account'}
+            </button>
             <p className="resend-text">
               Didn&apos;t get the code? Check your <strong>Spam/Junk</strong> folder too.{' '}
               <button type="button" className="btn-link" onClick={handleResend} disabled={resending}>
