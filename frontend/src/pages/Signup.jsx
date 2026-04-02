@@ -12,6 +12,8 @@ export default function Signup() {
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
+  const handleRoleSelect = (role) => setForm({ ...form, role });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -26,7 +28,6 @@ export default function Signup() {
         password: form.password,
         role: form.role,
       });
-      // Backend returns token + user immediately after registration
       const { token, user } = res.data;
       login(token, user);
       navigate('/verify');
@@ -73,11 +74,27 @@ export default function Signup() {
               <input id="confirmPassword" name="confirmPassword" type="password" placeholder="Re-enter your password" value={form.confirmPassword} onChange={handleChange} required className="form-input" />
             </div>
             <div className="form-group">
-              <label htmlFor="role">I want to be a</label>
-              <select id="role" name="role" value={form.role} onChange={handleChange} className="form-input">
-                <option value="student">Student (get tutored)</option>
-                <option value="tutor">Tutor (help others)</option>
-              </select>
+              <label>I want to be a</label>
+              <div className="role-toggle">
+                <button
+                  type="button"
+                  className={`role-btn ${form.role === 'student' ? 'role-btn-active' : ''}`}
+                  onClick={() => handleRoleSelect('student')}
+                >
+                  <span className="role-btn-icon">📚</span>
+                  <span className="role-btn-label">Student</span>
+                  <span className="role-btn-desc">Get tutored</span>
+                </button>
+                <button
+                  type="button"
+                  className={`role-btn ${form.role === 'tutor' ? 'role-btn-active' : ''}`}
+                  onClick={() => handleRoleSelect('tutor')}
+                >
+                  <span className="role-btn-icon">✏️</span>
+                  <span className="role-btn-label">Tutor</span>
+                  <span className="role-btn-desc">Help others</span>
+                </button>
+              </div>
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
               {loading ? 'Creating account...' : 'Create Account'}
