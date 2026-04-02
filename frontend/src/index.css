@@ -228,3 +228,117 @@ h1,h2,h3,h4,h5,h6{color:var(--gray-900);line-height:1.3}
 .role-btn-icon{font-size:1.5rem}
 .role-btn-label{font-size:.875rem;font-weight:700;color:var(--gray-900)}
 .role-btn-desc{font-size:.75rem;color:var(--gray-500)}
+
+
+/* ── Session Actions ── */
+.session-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.btn-danger-outline {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+.btn-danger-outline:hover {
+  background: #dc2626;
+  color: white;
+}
+
+/* ── Filter Bar ── */
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.filter-input {
+  min-width: 200px;
+}
+
+/* ── Booking Form ── */
+.booking-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.booking-form .form-group {
+  max-width: 300px;
+}
+.booking-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Add Slot Form ── */
+.add-slot-form {
+  background: var(--card-bg, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.form-subtitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.inline-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+/* ── Admin Actions ── */
+.admin-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.role-select {
+  width: 100px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ── Tutor Detail Info ── */
+.tutor-detail-info {
+  background: var(--card-bg, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.tutor-detail-info p {
+  margin: 4px 0;
+}
+
+/* ── Badge Variants ── */
+.badge-cancelled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* ── Button Sm ── */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.btn-full {
+  width: 100%;
+}

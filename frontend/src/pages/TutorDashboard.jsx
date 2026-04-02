@@ -14,6 +14,8 @@ export default function TutorDashboard() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: '', department: '', bio: '', courses: '' });
   const [profileMsg, setProfileMsg] = useState('');
+  const [slotForm, setSlotForm] = useState({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
+  const [slotMsg, setSlotMsg] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -33,7 +35,7 @@ export default function TutorDashboard() {
     } catch (err) { setError('Failed to load data.'); } finally { setLoading(false); }
   };
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const handleLogout = () => { logout(); };
 
   const handleProfileSave = async () => {
     try {
@@ -47,6 +49,49 @@ export default function TutorDashboard() {
       setProfileMsg('Profile updated!');
       setTimeout(() => setProfileMsg(''), 3000);
     } catch (err) { setProfileMsg(err.response?.data?.error || 'Failed to update.'); }
+  };
+
+  const handleAddSlot = async (e) => {
+    e.preventDefault();
+    if (!slotForm.date || !slotForm.start_time || !slotForm.end_time) {
+      setSlotMsg('All fields are required.'); return;
+    }
+    if (slotForm.start_time >= slotForm.end_time) {
+      setSlotMsg('End time must be after start time.'); return;
+    }
+    try {
+      await api.post('/tutors/availability', slotForm);
+      setSlotMsg('Slot added successfully!');
+      setSlotForm({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
+      fetchData();
+      setTimeout(() => setSlotMsg(''), 3000);
+    } catch (err) {
+      setSlotMsg(err.response?.data?.error || 'Failed to add slot.');
+    }
+  };
+
+  const handleDeleteSlot = async (slotId) => {
+    if (!window.confirm('Are you sure you want to delete this slot?')) return;
+    try {
+      await api.delete(`/tutors/availability/${slotId}`);
+      setSlotMsg('Slot deleted.');
+      fetchData();
+      setTimeout(() => setSlotMsg(''), 3000);
+    } catch (err) {
+      setSlotMsg(err.response?.data?.error || 'Failed to delete slot.');
+    }
+  };
+
+  const handleCancelSession = async (sessionId) => {
+    if (!window.confirm('Are you sure you want to cancel this session?')) return;
+    try {
+      await api.put(`/sessions/${sessionId}/cancel`);
+      setSlotMsg('Session cancelled.');
+      fetchData();
+      setTimeout(() => setSlotMsg(''), 3000);
+    } catch (err) {
+      setSlotMsg(err.response?.data?.error || 'Failed to cancel session.');
+    }
   };
 
   const upcoming = sessions.filter(s => s.status === 'confirmed');
@@ -76,7 +121,7 @@ export default function TutorDashboard() {
       <main className="dashboard-main">
         <header className="dashboard-header"><h1>Welcome, {user?.full_name} 👋</h1><p className="text-muted">Manage your sessions and profile</p></header>
         {error && <div className="alert alert-error">{error}</div>}
-        {profileMsg && <div className="alert alert-success">{profileMsg}</div>}
+        {(profileMsg || slotMsg) && <div className="alert alert-success">{profileMsg || slotMsg}</div>}
         <div className="stats-row">
           <div className="stat-card"><div className="stat-icon">📅</div><div className="stat-info"><span className="stat-value">{upcoming.length}</span><span className="stat-label">Upcoming</span></div></div>
           <div className="stat-card"><div className="stat-icon">✅</div><div className="stat-info"><span className="stat-value">{completed.length}</span><span className="stat-label">Completed</span></div></div>
@@ -95,6 +140,9 @@ export default function TutorDashboard() {
                     <p><strong>Date:</strong> {s.slot?.date || 'TBD'}</p>
                     <p><strong>Time:</strong> {s.slot?.start_time}{s.slot?.end_time ? ' — ' + s.slot.end_time : ''}</p>
                     <p><strong>Location:</strong> {s.slot?.location || 'N/A'}</p>
+                  </div>
+                  <div className="session-actions">
+                    <button className="btn btn-outline btn-danger-outline" onClick={() => handleCancelSession(s.id)}>Cancel Session</button>
                   </div>
                 </div>
               ))}</div>
@@ -123,6 +171,16 @@ export default function TutorDashboard() {
         {activeTab === 'slots' && (
           <section className="dashboard-section">
             <h2 className="section-heading">My Availability Slots</h2>
+            <div className="add-slot-form">
+              <h3 className="form-subtitle">Add New Slot</h3>
+              <form onSubmit={handleAddSlot} className="inline-form">
+                <div className="form-group"><label>Date</label><input className="form-input" type="date" value={slotForm.date} onChange={(e) => setSlotForm({ ...slotForm, date: e.target.value })} required /></div>
+                <div className="form-group"><label>Start Time</label><input className="form-input" type="time" value={slotForm.start_time} onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })} required /></div>
+                <div className="form-group"><label>End Time</label><input className="form-input" type="time" value={slotForm.end_time} onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })} required /></div>
+                <div className="form-group"><label>Location</label><input className="form-input" type="text" placeholder="Ehsas Room" value={slotForm.location} onChange={(e) => setSlotForm({ ...slotForm, location: e.target.value })} /></div>
+                <button type="submit" className="btn btn-primary">Add Slot</button>
+              </form>
+            </div>
             {slots.length === 0 ? <div className="empty-state"><span className="empty-icon">🕐</span><h3>No slots created</h3><p>Your availability slots will appear here.</p></div> : (
               <div className="sessions-list">{slots.map(s => (
                 <div key={s.id} className="session-card">
@@ -131,6 +189,11 @@ export default function TutorDashboard() {
                     <p><strong>Time:</strong> {s.start_time} — {s.end_time}</p>
                     <p><strong>Location:</strong> {s.location || 'N/A'}</p>
                   </div>
+                  {s.status === 'open' && (
+                    <div className="session-actions">
+                      <button className="btn btn-outline btn-danger-outline" onClick={() => handleDeleteSlot(s.id)}>Delete Slot</button>
+                    </div>
+                  )}
                 </div>
               ))}</div>
             )}
