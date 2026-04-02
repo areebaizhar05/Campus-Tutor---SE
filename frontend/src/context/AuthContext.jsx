@@ -32,6 +32,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('campustutor_user');
     setToken(null);
     setUser(null);
+    window.location.href = '/';
   };
 
   const updateUser = (updatedUser) => {

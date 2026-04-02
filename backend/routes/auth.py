@@ -214,17 +214,26 @@ def forgot_password():
     if not email:
         return jsonify({'error': 'Email is required.'}), 400
 
-    user = User.query.filter_by(email=email).first()
-    # Always return 200 to prevent email enumeration
-    if user and user.is_active:
-        otp = generate_otp()
-        user.otp_code    = otp
-        user.otp_expiry  = datetime.utcnow() + timedelta(minutes=5)
-        user.otp_purpose = 'reset'
-        db.session.commit()
-        send_otp_email(email, otp, 'reset')
+    # ── Validate university email domain ──
+    if not email.endswith(ALLOWED_DOMAIN):
+        return jsonify({'error': f'Only {ALLOWED_DOMAIN} email addresses are allowed.'}), 400
 
-    return jsonify({'message': 'If an account exists, a reset code has been sent.'}), 200
+    # ── Check that email is registered ──
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'error': 'No account found with this email address.'}), 404
+
+    if not user.is_active:
+        return jsonify({'error': 'Your account has been deactivated. Contact an administrator.'}), 403
+
+    otp = generate_otp()
+    user.otp_code    = otp
+    user.otp_expiry  = datetime.utcnow() + timedelta(minutes=5)
+    user.otp_purpose = 'reset'
+    db.session.commit()
+    send_otp_email(email, otp, 'reset')
+
+    return jsonify({'message': 'Reset code sent! Check the Flask terminal.'}), 200
 
 
 @auth_bp.route('/reset-password', methods=['POST'])
