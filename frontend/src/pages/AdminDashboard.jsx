@@ -1,112 +1,424 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
 export default function AdminDashboard() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ total_sessions: 0, confirmed: 0, completed: 0, cancelled: 0, total_students: 0, total_tutors: 0 });
+  const [stats, setStats] = useState({
+    total_students: 0,
+    total_tutors: 0,
+    total_sessions: 0,
+    confirmed: 0,
+    completed: 0,
+    cancelled: 0,
+  });
   const [sessions, setSessions] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('overview');
+  const [success, setSuccess] = useState('');
+  const [activeTab, setActiveTab] = useState('dashboard');
 
-  useEffect(() => { fetchDashboardData(); }, []);
+  // Manage Users state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [togglingId, setTogglingId] = useState(null);
+  const [changingRoleId, setChangingRoleId] = useState(null);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
-      const [sRes, sessRes, uRes] = await Promise.all([api.get('/admin/stats'), api.get('/admin/sessions'), api.get('/admin/users')]);
-      setStats(sRes.data);
-      setSessions(sessRes.data.sessions || []);
-      setUsers(uRes.data.users || []);
-    } catch (err) { setError('Failed to load admin data.'); } finally { setLoading(false); }
+      const [statsRes, sessionsRes, usersRes] = await Promise.all([
+        api.get('/admin/stats'),
+        api.get('/admin/sessions'),
+        api.get('/admin/users'),
+      ]);
+      setStats(
+        statsRes.data || {
+          total_students: 0,
+          total_tutors: 0,
+          total_sessions: 0,
+          confirmed: 0,
+          completed: 0,
+          cancelled: 0,
+        }
+      );
+      setSessions(sessionsRes.data.sessions || []);
+      setUsers(usersRes.data.users || []);
+    } catch (err) {
+      setError('Failed to load admin data. Please refresh.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  // Search users
+  const handleSearch = async (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    try {
+      const res = await api.get(`/admin/users?search=${encodeURIComponent(query)}`);
+      setUsers(res.data.users || []);
+    } catch (err) {
+      // silent fail for search
+    }
+  };
 
-  if (loading) return (
-    <div className="dashboard-layout"><div className="loading-screen"><div className="spinner"></div><p>Loading...</p></div></div>
-  );
+  // Toggle user active/inactive
+  const handleToggleActive = async (userId, currentStatus) => {
+    setTogglingId(userId);
+    try {
+      await api.put(`/admin/users/${userId}/toggle-active`);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId ? { ...u, is_active: !currentStatus } : u
+        )
+      );
+      setSuccess(`User ${currentStatus ? 'deactivated' : 'activated'} successfully.`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError('Failed to update user status.');
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  // Change user role
+  const handleChangeRole = async (userId, newRole) => {
+    if (!newRole) return;
+    setChangingRoleId(userId);
+    try {
+      await api.put(`/admin/users/${userId}/role`, { role: newRole });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId ? { ...u, role: newRole } : u
+        )
+      );
+      setSuccess(`User role changed to ${newRole} successfully.`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError('Failed to change user role.');
+    } finally {
+      setChangingRoleId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="dashboard-layout">
+        <div className="loading-screen">
+          <div className="spinner"></div>
+          <p>Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-layout">
+      {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-brand"><span className="brand-icon">🎓</span><span className="brand-text">CampusTutor</span></div>
-        <div className="sidebar-user">
-          <div className="user-avatar user-avatar-admin">A</div>
-          <div className="user-info"><span className="user-name">Admin</span><span className="user-role">Administrator</span></div>
-        </div>
-        <nav className="sidebar-nav">
-          <button className={`sidebar-link ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}><span className="nav-icon">📊</span> Overview</button>
-          <button className={`sidebar-link ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')}><span className="nav-icon">📅</span> Sessions</button>
-          <button className={`sidebar-link ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}><span className="nav-icon">👥</span> Users</button>
-        </nav>
-        <div className="sidebar-footer"><button className="sidebar-link sidebar-logout" onClick={handleLogout}><span className="nav-icon">🚪</span> Log Out</button></div>
-      </aside>
-      <main className="dashboard-main">
-        <header className="dashboard-header"><h1>Admin Dashboard</h1><p className="text-muted">CampusTutor system overview</p></header>
-        {error && <div className="alert alert-error">{error}</div>}
-        <div className="stats-row stats-row-4">
-          <div className="stat-card"><div className="stat-icon">👥</div><div className="stat-info"><span className="stat-value">{stats.total_students}</span><span className="stat-label">Students</span></div></div>
-          <div className="stat-card"><div className="stat-icon">👨‍🏫</div><div className="stat-info"><span className="stat-value">{stats.total_tutors}</span><span className="stat-label">Tutors</span></div></div>
-          <div className="stat-card"><div className="stat-icon">📅</div><div className="stat-info"><span className="stat-value">{stats.total_sessions}</span><span className="stat-label">Total Sessions</span></div></div>
-          <div className="stat-card"><div className="stat-icon">✅</div><div className="stat-info"><span className="stat-value">{stats.completed}</span><span className="stat-label">Completed</span></div></div>
+        <div className="sidebar-brand">
+          <span className="brand-icon">🎓</span>
+          <span className="brand-text">CampusTutor</span>
         </div>
 
-        {activeTab === 'overview' && (
-          <div>
-            <section className="dashboard-section">
-              <h2 className="section-heading">Session Summary</h2>
-              <div className="chart-container">
-                <div className="bar-chart">
-                  <div className="bar-group"><div className="bar bar-pending" style={{ height: Math.max(10, stats.confirmed * 20) + 'px' }}></div><span className="bar-label">Confirmed ({stats.confirmed})</span></div>
-                  <div className="bar-group"><div className="bar bar-completed" style={{ height: Math.max(10, stats.completed * 20) + 'px' }}></div><span className="bar-label">Completed ({stats.completed})</span></div>
-                  <div className="bar-group"><div className="bar bar-cancelled" style={{ height: Math.max(10, (stats.cancelled || 0) * 20) + 'px' }}></div><span className="bar-label">Cancelled ({stats.cancelled || 0})</span></div>
+        <div className="sidebar-user">
+          <div className="user-avatar user-avatar-admin">A</div>
+          <div className="user-info">
+            <span className="user-name">Admin</span>
+            <span className="user-role">Administrator</span>
+          </div>
+        </div>
+
+        <nav className="sidebar-nav">
+          <button
+            className={`sidebar-link ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <span className="nav-icon">📊</span> Dashboard
+          </button>
+          <button
+            className={`sidebar-link ${activeTab === 'users' ? 'active' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            <span className="nav-icon">👥</span> Manage Users
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <button className="sidebar-link sidebar-logout" onClick={handleLogout}>
+            <span className="nav-icon">🚪</span> Log Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="dashboard-main">
+        {/* Dashboard Tab - System Monitoring */}
+        {activeTab === 'dashboard' && (
+          <>
+            <header className="dashboard-header">
+              <h1>Dashboard</h1>
+              <p className="text-muted">System monitoring and session overview</p>
+            </header>
+
+            {error && <div className="alert alert-error">{error}</div>}
+
+            {/* Stats Cards */}
+            <div className="stats-row stats-row-4">
+              <div className="stat-card">
+                <div className="stat-icon">👥</div>
+                <div className="stat-info">
+                  <span className="stat-value">{stats.total_students}</span>
+                  <span className="stat-label">Students</span>
                 </div>
               </div>
-            </section>
+              <div className="stat-card">
+                <div className="stat-icon">👨‍🏫</div>
+                <div className="stat-info">
+                  <span className="stat-value">{stats.total_tutors}</span>
+                  <span className="stat-label">Tutors</span>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">📅</div>
+                <div className="stat-info">
+                  <span className="stat-value">{stats.total_sessions}</span>
+                  <span className="stat-label">Total Sessions</span>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">✅</div>
+                <div className="stat-info">
+                  <span className="stat-value">{stats.completed}</span>
+                  <span className="stat-label">Completed</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Session Status Chart */}
             <section className="dashboard-section">
-              <h2 className="section-heading">Recent Sessions</h2>
-              {sessions.length === 0 ? <div className="empty-state"><span className="empty-icon">📭</span><h3>No sessions yet</h3></div> : (
+              <h2 className="section-heading">Session Status Breakdown</h2>
+              <div className="chart-container">
+                {stats.total_sessions === 0 ? (
+                  <div className="empty-state">
+                    <span className="empty-icon">📭</span>
+                    <h3>No sessions recorded yet</h3>
+                    <p>Chart will populate once students start booking sessions.</p>
+                  </div>
+                ) : (
+                  <div className="bar-chart">
+                    <div className="bar-group">
+                      <div className="bar-value">{stats.confirmed}</div>
+                      <div
+                        className="bar bar-confirmed"
+                        style={{
+                          height: `${Math.max(10, (stats.confirmed / Math.max(1, stats.total_sessions)) * 160)}px`,
+                        }}
+                      ></div>
+                      <span className="bar-label">Confirmed</span>
+                    </div>
+                    <div className="bar-group">
+                      <div className="bar-value">{stats.completed}</div>
+                      <div
+                        className="bar bar-completed"
+                        style={{
+                          height: `${Math.max(10, (stats.completed / Math.max(1, stats.total_sessions)) * 160)}px`,
+                        }}
+                      ></div>
+                      <span className="bar-label">Completed</span>
+                    </div>
+                    <div className="bar-group">
+                      <div className="bar-value">{stats.cancelled}</div>
+                      <div
+                        className="bar bar-cancelled"
+                        style={{
+                          height: `${Math.max(10, (stats.cancelled / Math.max(1, stats.total_sessions)) * 160)}px`,
+                        }}
+                      ></div>
+                      <span className="bar-label">Cancelled</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* All Sessions Table */}
+            <section className="dashboard-section">
+              <h2 className="section-heading">All Sessions</h2>
+              {sessions.length === 0 ? (
+                <div className="empty-state">
+                  <span className="empty-icon">📭</span>
+                  <h3>No sessions found</h3>
+                  <p>Sessions will appear here once students start booking.</p>
+                </div>
+              ) : (
                 <div className="table-wrapper">
-                  <table className="data-table"><thead><tr><th>ID</th><th>Student</th><th>Tutor</th><th>Course</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
-                  <tbody>{sessions.slice(0, 10).map(s => (
-                    <tr key={s.id}><td>#{s.id}</td><td>{s.student_name || 'N/A'}</td><td>{s.tutor_name || 'N/A'}</td><td>{s.course_code || '-'}</td><td>{s.slot?.date || '-'}</td><td>{s.slot?.start_time || '-'}</td><td><span className={`badge badge-${s.status}`}>{s.status}</span></td></tr>
-                  ))}</tbody></table>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Student</th>
+                        <th>Tutor</th>
+                        <th>Topic</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessions.map((session) => (
+                        <tr key={session.id}>
+                          <td>#{session.id}</td>
+                          <td>{session.student_name || 'N/A'}</td>
+                          <td>{session.tutor_name || 'N/A'}</td>
+                          <td>{session.topic || '-'}</td>
+                          <td>{session.date || session.slot?.date || '-'}</td>
+                          <td>{session.time_slot || session.slot?.start_time || '-'}</td>
+                          <td>
+                            <span className={`badge badge-${session.status}`}>
+                              {session.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>
-          </div>
+          </>
         )}
 
-        {activeTab === 'sessions' && (
-          <section className="dashboard-section">
-            <h2 className="section-heading">All Sessions</h2>
-            {sessions.length === 0 ? <div className="empty-state"><span className="empty-icon">📭</span><h3>No sessions</h3></div> : (
-              <div className="table-wrapper">
-                <table className="data-table"><thead><tr><th>ID</th><th>Student</th><th>Tutor</th><th>Course</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
-                <tbody>{sessions.map(s => (
-                  <tr key={s.id}><td>#{s.id}</td><td>{s.student_name || 'N/A'}</td><td>{s.tutor_name || 'N/A'}</td><td>{s.course_code || '-'}</td><td>{s.slot?.date || '-'}</td><td>{s.slot?.start_time || '-'}</td><td><span className={`badge badge-${s.status}`}>{s.status}</span></td></tr>
-                ))}</tbody></table>
-              </div>
-            )}
-          </section>
-        )}
-
+        {/* Manage Users Tab - User Management */}
         {activeTab === 'users' && (
-          <section className="dashboard-section">
-            <h2 className="section-heading">All Users</h2>
-            {users.length === 0 ? <div className="empty-state"><span className="empty-icon">👥</span><h3>No users</h3></div> : (
-              <div className="table-wrapper">
-                <table className="data-table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Verified</th></tr></thead>
-                <tbody>{users.map(u => (
-                  <tr key={u.id}><td>#{u.id}</td><td>{u.full_name || u.name || 'N/A'}</td><td>{u.email}</td><td><span className={`badge badge-role-${u.role}`}>{u.role}</span></td><td><span className={`badge badge-${u.is_verified ? 'completed' : 'cancelled'}`}>{u.is_verified ? 'Yes' : 'No'}</span></td></tr>
-                ))}</tbody></table>
+          <>
+            <header className="dashboard-header">
+              <h1>Manage Users</h1>
+              <p className="text-muted">View, search, and manage user accounts</p>
+            </header>
+
+            {error && <div className="alert alert-error">{error}</div>}
+            {success && <div className="alert alert-success">{success}</div>}
+
+            {/* Search Bar */}
+            <section className="dashboard-section">
+              <div className="admin-search-bar">
+                <input
+                  type="text"
+                  className="form-input admin-search-input"
+                  placeholder="Search users by name or email..."
+                  value={searchQuery}
+                  onChange={handleSearch}
+                />
+                <span className="admin-search-count">{users.length} user{users.length !== 1 ? 's' : ''} found</span>
               </div>
-            )}
-          </section>
+            </section>
+
+            {/* Users Table */}
+            <section className="dashboard-section">
+              <h2 className="section-heading">User Accounts</h2>
+              {users.length === 0 ? (
+                <div className="empty-state">
+                  <span className="empty-icon">👥</span>
+                  <h3>No users found</h3>
+                  <p>
+                    {searchQuery
+                      ? 'Try adjusting your search query.'
+                      : 'Users will appear here once they sign up.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Verified</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((u) => (
+                        <tr key={u.id} className={!u.is_active ? 'row-inactive' : ''}>
+                          <td>#{u.id}</td>
+                          <td className="user-name-cell">
+                            {u.full_name || u.name || 'N/A'}
+                            {u.role === 'admin' && (
+                              <span className="badge badge-role-admin admin-badge-inline">Admin</span>
+                            )}
+                          </td>
+                          <td>{u.email}</td>
+                          <td>
+                            <span className={`badge badge-role-${u.role}`}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`badge badge-${u.is_verified ? 'completed' : 'pending'}`}>
+                              {u.is_verified ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`badge badge-${u.is_active ? 'active' : 'deactivated'}`}>
+                              {u.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="action-cells">
+                              {u.role === 'admin' ? (
+                                <span className="action-disabled">Protected</span>
+                              ) : (
+                                <>
+                                  <select
+                                    className="role-select"
+                                    value={u.role}
+                                    onChange={(e) => handleChangeRole(u.id, e.target.value)}
+                                    disabled={changingRoleId === u.id}
+                                  >
+                                    <option value="student">Student</option>
+                                    <option value="tutor">Tutor</option>
+                                    <option value="admin">Admin</option>
+                                  </select>
+                                  <button
+                                    className={`btn btn-sm ${u.is_active ? 'btn-danger-outline' : 'btn-success-outline'}`}
+                                    onClick={() => handleToggleActive(u.id, u.is_active)}
+                                    disabled={togglingId === u.id}
+                                  >
+                                    {togglingId === u.id ? (
+                                      <span className="btn-spinner"></span>
+                                    ) : u.is_active ? (
+                                      'Deactivate'
+                                    ) : (
+                                      'Activate'
+                                    )}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
         )}
       </main>
     </div>
