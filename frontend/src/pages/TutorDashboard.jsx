@@ -90,14 +90,25 @@ export default function TutorDashboard() {
     if (!window.confirm('Are you sure you want to cancel this session?')) return;
     try {
       await api.put(`/sessions/${sessionId}/cancel`);
-      setSlotMsg('Session cancelled.');
+      setSuccess('Session cancelled.');
       fetchData();
-      setTimeout(() => setSlotMsg(''), 3000);
-    } catch (err) { setSlotMsg(err.response?.data?.error || 'Failed to cancel session.'); }
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to cancel session.'); }
+  };
+
+  const handleCompleteSession = async (sessionId) => {
+    if (!window.confirm('Mark this session as completed?')) return;
+    try {
+      await api.put(`/sessions/${sessionId}/complete`);
+      setSuccess('Session marked as completed.');
+      fetchData();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to complete session.'); }
   };
 
   const upcoming = sessions.filter(s => s.status === 'confirmed');
   const completed = sessions.filter(s => s.status === 'completed');
+  const cancelled = sessions.filter(s => s.status === 'cancelled');
   const openSlots = slots.filter(s => s.status === 'open');
 
   if (loading) return (
@@ -113,8 +124,8 @@ export default function TutorDashboard() {
           <div className="user-info"><span className="user-name">{user?.full_name || 'Tutor'}</span><span className="user-role">Tutor</span></div>
         </div>
         <nav className="sidebar-nav">
-          <button className={`sidebar-link ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}><span className="nav-icon">📅</span> Upcoming</button>
-          <button className={`sidebar-link ${activeTab === 'completed' ? 'active' : ''}`} onClick={() => setActiveTab('completed')}><span className="nav-icon">✅</span> Completed</button>
+          <button className={`sidebar-link ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}><span className="nav-icon">📅</span> Upcoming ({upcoming.length})</button>
+          <button className={`sidebar-link ${activeTab === 'completed' ? 'active' : ''}`} onClick={() => setActiveTab('completed')}><span className="nav-icon">✅</span> Completed ({completed.length})</button>
           <button className={`sidebar-link ${activeTab === 'slots' ? 'active' : ''}`} onClick={() => setActiveTab('slots')}><span className="nav-icon">🕐</span> My Slots ({openSlots.length})</button>
           <button className={`sidebar-link ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}><span className="nav-icon">👤</span> My Profile</button>
         </nav>
@@ -126,11 +137,12 @@ export default function TutorDashboard() {
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
         {profileMsg && <div className="alert alert-success">{profileMsg}</div>}
-        {slotMsg && !error && <div className="alert alert-success">{slotMsg}</div>}
+        {slotMsg && !error && !success && <div className="alert alert-success">{slotMsg}</div>}
 
-        <div className="stats-row">
+        <div className="stats-row stats-row-4">
           <div className="stat-card"><div className="stat-icon">📅</div><div className="stat-info"><span className="stat-value">{upcoming.length}</span><span className="stat-label">Upcoming</span></div></div>
           <div className="stat-card"><div className="stat-icon">✅</div><div className="stat-info"><span className="stat-value">{completed.length}</span><span className="stat-label">Completed</span></div></div>
+          <div className="stat-card"><div className="stat-icon">🚫</div><div className="stat-info"><span className="stat-value">{cancelled.length}</span><span className="stat-label">Cancelled</span></div></div>
           <div className="stat-card"><div className="stat-icon">🕐</div><div className="stat-info"><span className="stat-value">{openSlots.length}</span><span className="stat-label">Open Slots</span></div></div>
         </div>
 
@@ -142,12 +154,13 @@ export default function TutorDashboard() {
                 <div key={s.id} className="session-card">
                   <div className="session-header"><h3>{s.course_code}</h3><span className={`badge badge-${s.status}`}>{s.status}</span></div>
                   <div className="session-details">
-                    <p><strong>Student:</strong> {s.student_name || 'TBD'}</p>
+                    <p><strong>Student:</strong> {s.student_name || 'TBD'}{s.tutor_phone ? '' : ''}</p>
                     <p><strong>Date:</strong> {s.slot?.date || 'TBD'}</p>
                     <p><strong>Time:</strong> {s.slot?.start_time}{s.slot?.end_time ? ` — ${s.slot.end_time}` : ''}</p>
                     <p><strong>Location:</strong> {s.slot?.location || 'N/A'}</p>
                   </div>
                   <div className="session-actions">
+                    <button className="btn btn-sm btn-success-outline" onClick={() => handleCompleteSession(s.id)}>Mark Complete</button>
                     <button className="btn btn-sm btn-danger-outline" onClick={() => handleCancelSession(s.id)}>Cancel Session</button>
                   </div>
                 </div>

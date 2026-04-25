@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
 export default function Verify() {
-  const { user, token } = useAuth();
+  const { user, token, login } = useAuth();
   const navigate = useNavigate();
   const [otp, setOtp] = useState(['', '', '', '']);
   const [error, setError] = useState('');
@@ -35,10 +35,15 @@ export default function Verify() {
     if (code.length !== 4) { setError('Please enter all 4 digits.'); return; }
     setError(''); setLoading(true);
     try {
-      await api.post('/auth/verify-otp', { code });
-      // On success, redirect based on role
-      if (user?.role === 'admin') navigate('/admin', { replace: true });
-      else if (user?.role === 'tutor') navigate('/tutor', { replace: true });
+      const res = await api.post('/auth/verify-otp', { code });
+      // Update auth context with verified user data
+      const { token: newToken, user: updatedUser } = res.data;
+      if (login && newToken && updatedUser) {
+        login(newToken, updatedUser);
+      }
+      // Redirect based on role
+      if (updatedUser?.role === 'admin') navigate('/admin', { replace: true });
+      else if (updatedUser?.role === 'tutor') navigate('/tutor', { replace: true });
       else navigate('/student', { replace: true });
     } catch (err) { setError(err.response?.data?.error || 'Verification failed.'); }
     finally { setLoading(false); }
@@ -69,7 +74,7 @@ export default function Verify() {
           {resendMsg && <div className="alert alert-success">{resendMsg}</div>}
           <form onSubmit={handleSubmit} className="auth-form">
             <div className="otp-group">
-              {[0,1,2,3].map((i) => (
+              {[0, 1, 2, 3].map((i) => (
                 <input key={i} ref={(el) => (inputRefs.current[i] = el)} type="text" inputMode="numeric" maxLength={1} value={otp[i]} onChange={(e) => handleChange(i, e.target.value)} onKeyDown={(e) => handleKeyDown(i, e)} onPaste={handlePaste} className="otp-input" required />
               ))}
             </div>

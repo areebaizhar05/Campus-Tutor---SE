@@ -19,6 +19,7 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState(null);
   const [changingRoleId, setChangingRoleId] = useState(null);
+  const [completingId, setCompletingId] = useState(null);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -73,6 +74,18 @@ export default function AdminDashboard() {
     finally { setChangingRoleId(null); }
   };
 
+  const handleCompleteSession = async (sessionId) => {
+    if (!window.confirm('Mark this session as completed?')) return;
+    setCompletingId(sessionId);
+    try {
+      await api.put(`/sessions/${sessionId}/complete`);
+      setSuccess('Session marked as completed.');
+      fetchDashboardData();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to complete session.'); }
+    finally { setCompletingId(null); }
+  };
+
   if (loading) {
     return (
       <div className="dashboard-layout">
@@ -113,13 +126,15 @@ export default function AdminDashboard() {
 
       {/* Main */}
       <main className="dashboard-main">
+        {error && <div className="alert alert-error">{error}</div>}
+        {success && <div className="alert alert-success">{success}</div>}
+
         {activeTab === 'dashboard' && (
           <>
             <header className="dashboard-header">
               <h1>Dashboard</h1>
               <p className="text-muted">System monitoring and session overview</p>
             </header>
-            {error && <div className="alert alert-error">{error}</div>}
 
             <div className="stats-row stats-row-4">
               <div className="stat-card"><div className="stat-icon">👥</div><div className="stat-info"><span className="stat-value">{stats.total_students}</span><span className="stat-label">Students</span></div></div>
@@ -150,7 +165,7 @@ export default function AdminDashboard() {
               ) : (
                 <div className="table-wrapper">
                   <table className="data-table">
-                    <thead><tr><th>ID</th><th>Student</th><th>Tutor</th><th>Course</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Student</th><th>Tutor</th><th>Course</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody>
                       {sessions.map((session) => (
                         <tr key={session.id}>
@@ -161,6 +176,15 @@ export default function AdminDashboard() {
                           <td>{session.slot?.date || '-'}</td>
                           <td>{session.slot?.start_time ? `${session.slot.start_time} - ${session.slot.end_time}` : '-'}</td>
                           <td><span className={`badge badge-${session.status}`}>{session.status}</span></td>
+                          <td>
+                            {session.status === 'confirmed' ? (
+                              <button className="btn btn-sm btn-success-outline" onClick={() => handleCompleteSession(session.id)} disabled={completingId === session.id}>
+                                {completingId === session.id ? <span className="btn-spinner"></span> : 'Complete'}
+                              </button>
+                            ) : (
+                              <span className="action-disabled">—</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -177,8 +201,6 @@ export default function AdminDashboard() {
               <h1>Manage Users</h1>
               <p className="text-muted">View, search, and manage user accounts</p>
             </header>
-            {error && <div className="alert alert-error">{error}</div>}
-            {success && <div className="alert alert-success">{success}</div>}
 
             <section className="dashboard-section">
               <div className="admin-search-bar">
