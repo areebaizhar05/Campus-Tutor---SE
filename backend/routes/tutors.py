@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, User, AvailabilitySlot
+from models import db, User, AvailabilitySlot, TutoringSession
 
 tutors_bp = Blueprint('tutors', __name__)
 
@@ -66,6 +66,15 @@ def add_availability():
     if start_time >= end_time:
         return jsonify({'error': 'End time must be after start time.'}), 400
 
+    # Prevent duplicate slot (same tutor, same date, overlapping time)
+    existing = AvailabilitySlot.query.filter_by(tutor_id=user_id, date=date).all()
+    for ex in existing:
+        # Overlap check: not (end <= ex.start or start >= ex.end)
+        if not (end_time <= ex.start_time or start_time >= ex.end_time):
+            return jsonify({
+                'error': f'You already have a slot on {date} that overlaps with {ex.start_time}–{ex.end_time}.'
+            }), 409
+
     slot = AvailabilitySlot(
         tutor_id   = user_id,
         date       = date,
@@ -91,6 +100,11 @@ def delete_availability(slot_id):
         return jsonify({'error': 'Unauthorized.'}), 403
     if slot.status == 'booked':
         return jsonify({'error': 'Cannot delete a slot that is already booked.'}), 400
+
+    # Check if any session (including completed/cancelled) references this slot
+    session_ref = TutoringSession.query.filter_by(slot_id=slot_id).first()
+    if session_ref:
+        return jsonify({'error': 'Cannot delete a slot that has been used in a tutoring session.'}), 400
 
     db.session.delete(slot)
     db.session.commit()

@@ -86,3 +86,28 @@ def cancel_session(session_id):
 
     db.session.commit()
     return jsonify({'session': session.to_dict()}), 200
+
+
+@sessions_bp.route('/<int:session_id>/complete', methods=['PUT'])
+@jwt_required()
+def complete_session(session_id):
+    """Mark a confirmed session as completed (tutor or admin only)."""
+    user_id = int(get_jwt_identity())
+    user    = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found.'}), 404
+
+    session = TutoringSession.query.get(session_id)
+    if not session:
+        return jsonify({'error': 'Session not found.'}), 404
+
+    # Only the session's tutor or an admin can mark as completed
+    if session.tutor_id != user_id and user.role != 'admin':
+        return jsonify({'error': 'Only the session tutor or an admin can complete a session.'}), 403
+
+    if session.status != 'confirmed':
+        return jsonify({'error': 'Only confirmed sessions can be marked as completed.'}), 400
+
+    session.status = 'completed'
+    db.session.commit()
+    return jsonify({'session': session.to_dict()}), 200
