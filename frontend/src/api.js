@@ -1,31 +1,34 @@
-const BASE = '/api';
+import axios from 'axios';
 
-async function request(url, options = {}) {
-  const token = localStorage.getItem('token');
-  const headers = {
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
     'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  },
+});
+
+// Automatically attach JWT token to every request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('campustutor_token');
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    config.headers.Authorization = `Bearer ${token}`;
   }
+  return config;
+});
 
-  const res = await fetch(`${BASE}${url}`, { ...options, headers });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw { status: res.status, ...data };
+// Handle 401 responses globally
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('campustutor_token');
+      localStorage.removeItem('campustutor_user');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
   }
-
-  if (res.status === 204) return null;
-  return res.json();
-}
-
-const api = {
-  get: (url) => request(url, { method: 'GET' }),
-  post: (url, body) => request(url, { method: 'POST', body: JSON.stringify(body) }),
-  put: (url, body) => request(url, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: (url) => request(url, { method: 'DELETE' }),
-};
+);
 
 export default api;

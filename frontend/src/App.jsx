@@ -1,60 +1,65 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Verify from './pages/Verify';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import StudentDashboard from './pages/StudentDashboard';
 import TutorDashboard from './pages/TutorDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 
-function ProtectedRoute({ children, role }) {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><div className="spinner"></div></div>;
+function ProtectedRoute({ children, allowedRoles }) {
+  const { user, token } = useAuth();
+  if (!token || !user) return <Navigate to="/login" replace />;
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (user.role === 'admin') return <Navigate to="/admin" replace />;
+    if (user.role === 'tutor') return <Navigate to="/tutor" replace />;
+    return <Navigate to="/student" replace />;
   }
-
-  if (!user) return <Navigate to="/login" replace />;
-  if (role && user.role !== role) return <Navigate to="/login" replace />;
-
   return children;
+}
+
+function AppRoutes() {
+  const { user, token } = useAuth();
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={
+        token && user
+          ? (user.role === 'admin' ? <Navigate to="/admin" replace />
+            : user.role === 'tutor' ? <Navigate to="/tutor" replace />
+              : <Navigate to="/student" replace />)
+          : <Login />
+      } />
+      <Route path="/signup" element={
+        token && user ? <Navigate to="/student" replace /> : <Signup />
+      } />
+      <Route path="/verify" element={<Verify />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/student" element={
+        <ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>
+      } />
+      <Route path="/tutor" element={
+        <ProtectedRoute allowedRoles={['tutor']}><TutorDashboard /></ProtectedRoute>
+      } />
+      <Route path="/admin" element={
+        <ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>
+      } />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
-      <Route path="/verify" element={<Verify />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route
-        path="/student"
-        element={
-          <ProtectedRoute role="student">
-            <StudentDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tutor"
-        element={
-          <ProtectedRoute role="tutor">
-            <TutorDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute role="admin">
-            <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
