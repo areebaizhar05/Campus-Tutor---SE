@@ -1,54 +1,52 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../api';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('campustutor_token');
-    const savedUser = localStorage.getItem('campustutor_user');
-    if (savedToken && savedUser) {
+    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('token');
+    if (storedUser && storedToken) {
       try {
-        setUser(JSON.parse(savedUser));
-        setToken(savedToken);
-      } catch (e) {
-        localStorage.removeItem('campustutor_token');
-        localStorage.removeItem('campustutor_user');
+        setUser(JSON.parse(storedUser));
+        setToken(storedToken);
+      } catch {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
       }
     }
+    setLoading(false);
   }, []);
 
-  const login = (newToken, newUser) => {
-    localStorage.setItem('campustutor_token', newToken);
-    localStorage.setItem('campustutor_user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
+  const login = (userData, tokenStr) => {
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('token', tokenStr);
+    setUser(userData);
+    setToken(tokenStr);
   };
 
   const logout = () => {
-    localStorage.removeItem('campustutor_token');
-    localStorage.removeItem('campustutor_user');
-    setToken(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
     setUser(null);
-    window.location.href = '/';
-  };
-
-  const updateUser = (updatedUser) => {
-    localStorage.setItem('campustutor_user', JSON.stringify(updatedUser));
-    setUser(updatedUser);
+    setToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
+  return ctx;
 }

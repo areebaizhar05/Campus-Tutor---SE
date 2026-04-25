@@ -1,238 +1,500 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
+/* ── Sidebar ──────────────────────────────── */
+function Sidebar({ tab, setTab, user, onLogout }) {
+  return (
+    <aside className="sidebar">
+      <div className="sb-logo">
+        <h2>Campus<span>Tutor</span></h2>
+        <div className="sb-role">Tutor Portal</div>
+      </div>
+      <nav className="sb-nav">
+        <a className={tab === 'sessions' ? 'active' : ''} onClick={() => setTab('sessions')}>
+          <span className="nav-icon">📋</span> My Sessions
+        </a>
+        <a className={tab === 'availability' ? 'active' : ''} onClick={() => setTab('availability')}>
+          <span className="nav-icon">📅</span> My Availability
+        </a>
+        <a className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>
+          <span className="nav-icon">👤</span> My Profile
+        </a>
+      </nav>
+      <div className="sb-bottom">
+        <div className="sb-user-name">{user?.full_name || 'Tutor'}</div>
+        <div className="sb-user-email">{user?.email || ''}</div>
+        {user?.phone && <div className="sb-user-phone">{user.phone}</div>}
+        <button className="sb-logout" onClick={onLogout}>↪ Log Out</button>
+      </div>
+    </aside>
+  );
+}
+
+/* ── Helpers ──────────────────────────────── */
+function formatDate(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatTime(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function statusBadge(status) {
+  const s = status?.toLowerCase();
+  if (s === 'confirmed') return <span className="badge badge-confirmed">Confirmed</span>;
+  if (s === 'completed') return <span className="badge badge-completed">Completed</span>;
+  if (s === 'cancelled') return <span className="badge badge-cancelled">Cancelled</span>;
+  if (s === 'open') return <span className="badge badge-open">Open</span>;
+  if (s === 'booked') return <span className="badge badge-booked">Booked</span>;
+  return <span className="badge badge-open">{status || 'Open'}</span>;
+}
+
+function generateICS(session) {
+  const start = new Date(session.date_time);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const pad = (n) => n.toString().padStart(2, '0');
+  const fmt = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+  const lines = [
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//CampusTutor//EN',
+    'BEGIN:VEVENT',
+    `DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,
+    `SUMMARY:Tutoring: ${session.course_code || 'Session'}`,
+    `DESCRIPTION:Session with ${session.student_name || 'Student'}`,
+    'END:VEVENT','END:VCALENDAR'
+  ];
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `session-${session.id || 'event'}.ics`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ── Main Component ───────────────────────── */
 export default function TutorDashboard() {
-  const { user, logout, updateUser } = useAuth();
-  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [tab, setTab] = useState('sessions');
+
+  /* Sessions state */
+  const [subTab, setSubTab] = useState('upcoming');
   const [sessions, setSessions] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [cancelModal, setCancelModal] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  /* Availability state */
   const [slots, setSlots] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('upcoming');
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({ full_name: '', department: '', bio: '', courses: '' });
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newSlot, setNewSlot] = useState({ date: '', start_time: '', end_time: '', location: '' });
+  const [adding, setAdding] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
+
+  /* Profile state */
+  const [profile, setProfile] = useState({ full_name: '', department: '', bio: '', courses: [], phone: '' });
+  const [editProfile, setEditProfile] = useState({ full_name: '', department: '', bio: '' });
+  const [editCourses, setEditCourses] = useState([]);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
-  const [slotForm, setSlotForm] = useState({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
-  const [slotMsg, setSlotMsg] = useState('');
 
+  /* Load sessions */
   useEffect(() => {
-    fetchData();
-    if (user) setProfileForm({
-      full_name: user.full_name || '',
-      department: user.department || '',
-      bio: user.bio || '',
-      courses: Array.isArray(user.courses) ? user.courses.join(', ') : (user.courses || ''),
-    });
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [sRes, slRes] = await Promise.all([api.get('/sessions/my'), api.get('/tutors/my-availability')]);
-      setSessions(sRes.data.sessions || []);
-      setSlots(slRes.data.slots || []);
-    } catch (err) { setError('Failed to load data.'); } finally { setLoading(false); }
-  };
-
-  const handleLogout = () => { logout(); };
-
-  const handleProfileSave = async () => {
-    try {
-      const payload = { ...profileForm };
-      if (payload.courses) {
-        payload.courses = payload.courses.split(',').map(c => c.trim()).filter(Boolean);
+    if (tab !== 'sessions') return;
+    const load = async () => {
+      setLoadingSessions(true);
+      try {
+        const data = await api.get('/sessions/tutor');
+        setSessions(Array.isArray(data.sessions) ? data.sessions : Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingSessions(false);
       }
-      const res = await api.put('/tutors/profile', payload);
-      if (updateUser && res.data.user) updateUser(res.data.user);
-      setEditingProfile(false);
-      setProfileMsg('Profile updated!');
-      setTimeout(() => setProfileMsg(''), 3000);
-    } catch (err) { setProfileMsg(err.response?.data?.error || 'Failed to update.'); }
+    };
+    load();
+  }, [tab]);
+
+  /* Load availability */
+  useEffect(() => {
+    if (tab !== 'availability') return;
+    const load = async () => {
+      setLoadingSlots(true);
+      try {
+        const data = await api.get('/availability');
+        setSlots(Array.isArray(data.slots) ? data.slots : Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+    load();
+  }, [tab]);
+
+  /* Load profile */
+  useEffect(() => {
+    if (tab !== 'profile') return;
+    const load = async () => {
+      try {
+        const data = await api.get('/tutor/profile');
+        setProfile(data);
+        setEditProfile({ full_name: data.full_name || '', department: data.department || '', bio: data.bio || '' });
+        setEditCourses(data.courses || []);
+      } catch (err) {
+        console.error(err);
+        // fallback to auth user
+        setProfile({ full_name: user?.full_name || '', department: '', bio: '', courses: [], phone: user?.phone || '' });
+        setEditProfile({ full_name: user?.full_name || '', department: '', bio: '' });
+        setEditCourses([]);
+      }
+    };
+    load();
+  }, [tab]);
+
+  const handleCancel = async () => {
+    if (!cancelModal) return;
+    setCancelling(true);
+    try {
+      await api.put(`/sessions/${cancelModal.id}/cancel`);
+      setSessions((prev) => prev.map((s) => (s.id === cancelModal.id ? { ...s, status: 'cancelled' } : s)));
+      setCancelModal(null);
+    } catch (err) {
+      alert(err.error || 'Cancel failed.');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const handleAddSlot = async (e) => {
     e.preventDefault();
-    if (!slotForm.date || !slotForm.start_time || !slotForm.end_time) {
-      setSlotMsg('All fields are required.'); return;
+    if (!newSlot.date || !newSlot.start_time || !newSlot.end_time) {
+      alert('Fill in all fields.');
+      return;
     }
-    if (slotForm.start_time >= slotForm.end_time) {
-      setSlotMsg('End time must be after start time.'); return;
-    }
+    setAdding(true);
     try {
-      await api.post('/tutors/availability', slotForm);
-      setSlotMsg('Slot added successfully!');
-      setSlotForm({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
-      fetchData();
-      setTimeout(() => setSlotMsg(''), 3000);
+      await api.post('/availability', newSlot);
+      setNewSlot({ date: '', start_time: '', end_time: '', location: '' });
+      setShowAddForm(false);
+      // Refresh
+      const data = await api.get('/availability');
+      setSlots(Array.isArray(data.slots) ? data.slots : []);
     } catch (err) {
-      setSlotMsg(err.response?.data?.error || 'Failed to add slot.');
+      alert(err.error || 'Failed to add slot.');
+    } finally {
+      setAdding(false);
     }
   };
 
-  const handleDeleteSlot = async (slotId) => {
-    if (!window.confirm('Are you sure you want to delete this slot?')) return;
+  const handleDeleteSlot = async (id) => {
     try {
-      await api.delete(`/tutors/availability/${slotId}`);
-      setSlotMsg('Slot deleted.');
-      fetchData();
-      setTimeout(() => setSlotMsg(''), 3000);
+      await api.delete(`/availability/${id}`);
+      setSlots((prev) => prev.filter((s) => s.id !== id));
+      setDeleteId(null);
     } catch (err) {
-      setSlotMsg(err.response?.data?.error || 'Failed to delete slot.');
+      alert(err.error || 'Failed to delete slot.');
     }
   };
 
-  const handleCancelSession = async (sessionId) => {
-    if (!window.confirm('Are you sure you want to cancel this session?')) return;
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    setProfileMsg('');
     try {
-      await api.put(`/sessions/${sessionId}/cancel`);
-      setSlotMsg('Session cancelled.');
-      fetchData();
-      setTimeout(() => setSlotMsg(''), 3000);
+      await api.put('/tutor/profile', { ...editProfile, courses: editCourses });
+      setProfile((prev) => ({ ...prev, ...editProfile, courses: editCourses }));
+      setEditing(false);
+      setProfileMsg('Profile updated successfully!');
+      setTimeout(() => setProfileMsg(''), 3000);
     } catch (err) {
-      setSlotMsg(err.response?.data?.error || 'Failed to cancel session.');
+      alert(err.error || 'Failed to save profile.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const upcoming = sessions.filter(s => s.status === 'confirmed');
-  const completed = sessions.filter(s => s.status === 'completed');
-  const openSlots = slots.filter(s => s.status === 'open');
+  const toggleCourse = (course) => {
+    setEditCourses((prev) =>
+      prev.includes(course) ? prev.filter((c) => c !== course) : [...prev, course]
+    );
+  };
 
-  if (loading) return (
-    <div className="dashboard-layout"><div className="loading-screen"><div className="spinner"></div><p>Loading...</p></div></div>
-  );
+  const upcoming = sessions.filter((s) => s.status?.toLowerCase() === 'confirmed');
+  const completed = sessions.filter((s) => s.status?.toLowerCase() === 'completed');
+
+  /* Group slots by date */
+  const grouped = {};
+  slots.forEach((s) => {
+    const dateKey = s.date || (s.date_time ? new Date(s.date_time).toISOString().split('T')[0] : 'Unknown');
+    if (!grouped[dateKey]) grouped[dateKey] = [];
+    grouped[dateKey].push(s);
+  });
+
+  const allCourses = ['CS101', 'CS201', 'CS301', 'CS305', 'CS401', 'MATH101', 'MATH201', 'PHY101', 'PHY201', 'EE201', 'SS101', 'SS201', 'HU101', 'HU201', 'COMM101'];
 
   return (
-    <div className="dashboard-layout">
-      <aside className="sidebar">
-        <div className="sidebar-brand"><span className="brand-icon">🎓</span><span className="brand-text">CampusTutor</span></div>
-        <div className="sidebar-user">
-          <div className="user-avatar">{user?.full_name?.charAt(0)?.toUpperCase() || 'T'}</div>
-          <div className="user-info"><span className="user-name">{user?.full_name || 'Tutor'}</span><span className="user-role">Tutor</span></div>
-        </div>
-        <nav className="sidebar-nav">
-          <button className={`sidebar-link ${activeTab === 'upcoming' ? 'active' : ''}`} onClick={() => setActiveTab('upcoming')}><span className="nav-icon">📅</span> Upcoming</button>
-          <button className={`sidebar-link ${activeTab === 'completed' ? 'active' : ''}`} onClick={() => setActiveTab('completed')}><span className="nav-icon">✅</span> Completed</button>
-          <button className={`sidebar-link ${activeTab === 'slots' ? 'active' : ''}`} onClick={() => setActiveTab('slots')}><span className="nav-icon">🕐</span> My Slots ({openSlots.length})</button>
-          <button className={`sidebar-link ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}><span className="nav-icon">👤</span> My Profile</button>
-        </nav>
-        <div className="sidebar-footer"><button className="sidebar-link sidebar-logout" onClick={handleLogout}><span className="nav-icon">🚪</span> Log Out</button></div>
-      </aside>
-      <main className="dashboard-main">
-        <header className="dashboard-header"><h1>Welcome, {user?.full_name} 👋</h1><p className="text-muted">Manage your sessions and profile</p></header>
-        {error && <div className="alert alert-error">{error}</div>}
-        {(profileMsg || slotMsg) && <div className="alert alert-success">{profileMsg || slotMsg}</div>}
-        <div className="stats-row">
-          <div className="stat-card"><div className="stat-icon">📅</div><div className="stat-info"><span className="stat-value">{upcoming.length}</span><span className="stat-label">Upcoming</span></div></div>
-          <div className="stat-card"><div className="stat-icon">✅</div><div className="stat-info"><span className="stat-value">{completed.length}</span><span className="stat-label">Completed</span></div></div>
-          <div className="stat-card"><div className="stat-icon">🕐</div><div className="stat-info"><span className="stat-value">{openSlots.length}</span><span className="stat-label">Open Slots</span></div></div>
-        </div>
+    <div className="app-shell">
+      <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} />
 
-        {activeTab === 'upcoming' && (
-          <section className="dashboard-section">
-            <h2 className="section-heading">Upcoming Sessions</h2>
-            {upcoming.length === 0 ? <div className="empty-state"><span className="empty-icon">📭</span><h3>No upcoming sessions</h3></div> : (
-              <div className="sessions-list">{upcoming.map(s => (
-                <div key={s.id} className="session-card">
-                  <div className="session-header"><h3>{s.course_code || 'Session'}</h3><span className={`badge badge-${s.status}`}>{s.status}</span></div>
-                  <div className="session-details">
-                    <p><strong>Student:</strong> {s.student_name || 'TBD'}</p>
-                    <p><strong>Date:</strong> {s.slot?.date || 'TBD'}</p>
-                    <p><strong>Time:</strong> {s.slot?.start_time}{s.slot?.end_time ? ' — ' + s.slot.end_time : ''}</p>
-                    <p><strong>Location:</strong> {s.slot?.location || 'N/A'}</p>
-                  </div>
-                  <div className="session-actions">
-                    <button className="btn btn-outline btn-danger-outline" onClick={() => handleCancelSession(s.id)}>Cancel Session</button>
-                  </div>
-                </div>
-              ))}</div>
-            )}
-          </section>
-        )}
-
-        {activeTab === 'completed' && (
-          <section className="dashboard-section">
-            <h2 className="section-heading">Completed Sessions</h2>
-            {completed.length === 0 ? <div className="empty-state"><span className="empty-icon">📋</span><h3>No completed sessions</h3></div> : (
-              <div className="sessions-list">{completed.map(s => (
-                <div key={s.id} className="session-card">
-                  <div className="session-header"><h3>{s.course_code || 'Session'}</h3><span className="badge badge-completed">completed</span></div>
-                  <div className="session-details">
-                    <p><strong>Student:</strong> {s.student_name || 'N/A'}</p>
-                    <p><strong>Date:</strong> {s.slot?.date || 'N/A'}</p>
-                    <p><strong>Time:</strong> {s.slot?.start_time || 'N/A'}</p>
-                  </div>
-                </div>
-              ))}</div>
-            )}
-          </section>
-        )}
-
-        {activeTab === 'slots' && (
-          <section className="dashboard-section">
-            <h2 className="section-heading">My Availability Slots</h2>
-            <div className="add-slot-form">
-              <h3 className="form-subtitle">Add New Slot</h3>
-              <form onSubmit={handleAddSlot} className="inline-form">
-                <div className="form-group"><label>Date</label><input className="form-input" type="date" value={slotForm.date} onChange={(e) => setSlotForm({ ...slotForm, date: e.target.value })} required /></div>
-                <div className="form-group"><label>Start Time</label><input className="form-input" type="time" value={slotForm.start_time} onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })} required /></div>
-                <div className="form-group"><label>End Time</label><input className="form-input" type="time" value={slotForm.end_time} onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })} required /></div>
-                <div className="form-group"><label>Location</label><input className="form-input" type="text" placeholder="Ehsas Room" value={slotForm.location} onChange={(e) => setSlotForm({ ...slotForm, location: e.target.value })} /></div>
-                <button type="submit" className="btn btn-primary">Add Slot</button>
-              </form>
+      <main className="main">
+        {/* ── Sessions Tab ── */}
+        {tab === 'sessions' && (
+          <>
+            <div className="page-header">
+              <h1>My Sessions</h1>
+              <p>Manage your tutoring sessions</p>
             </div>
-            {slots.length === 0 ? <div className="empty-state"><span className="empty-icon">🕐</span><h3>No slots created</h3><p>Your availability slots will appear here.</p></div> : (
-              <div className="sessions-list">{slots.map(s => (
-                <div key={s.id} className="session-card">
-                  <div className="session-header"><h3>{s.date}</h3><span className={`badge badge-${s.status === 'open' ? 'confirmed' : 'cancelled'}`}>{s.status}</span></div>
-                  <div className="session-details">
-                    <p><strong>Time:</strong> {s.start_time} — {s.end_time}</p>
-                    <p><strong>Location:</strong> {s.location || 'N/A'}</p>
-                  </div>
-                  {s.status === 'open' && (
-                    <div className="session-actions">
-                      <button className="btn btn-outline btn-danger-outline" onClick={() => handleDeleteSlot(s.id)}>Delete Slot</button>
-                    </div>
-                  )}
-                </div>
-              ))}</div>
+
+            <div className="tab-bar">
+              <div className={`tab ${subTab === 'upcoming' ? 'active' : ''}`} onClick={() => setSubTab('upcoming')}>
+                Upcoming ({upcoming.length})
+              </div>
+              <div className={`tab ${subTab === 'completed' ? 'active' : ''}`} onClick={() => setSubTab('completed')}>
+                Completed ({completed.length})
+              </div>
+            </div>
+
+            {loadingSessions && <div className="spinner"></div>}
+
+            {subTab === 'upcoming' && !loadingSessions && upcoming.length === 0 && (
+              <div className="empty-state"><div className="ei">📅</div><p>No upcoming sessions.</p></div>
             )}
-          </section>
+            {subTab === 'completed' && !loadingSessions && completed.length === 0 && (
+              <div className="empty-state"><div className="ei">✅</div><p>No completed sessions.</p></div>
+            )}
+
+            {subTab === 'upcoming' && upcoming.map((s) => (
+              <div key={s.id} className="session-item">
+                <div className="session-info">
+                  <div>
+                    {s.course_code && <span className="course-tag">{s.course_code}</span>}
+                    {statusBadge(s.status)}
+                  </div>
+                  <div className="person">{s.student_name || 'Student'}</div>
+                  <div className="time">
+                    {formatDate(s.date_time)} at {formatTime(s.date_time)}
+                    {s.location && ` • ${s.location}`}
+                  </div>
+                </div>
+                <div className="session-actions">
+                  <button className="btn btn-sm btn-outline" onClick={() => generateICS(s)}>📅 .ics</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => setCancelModal(s)}>✕ Cancel</button>
+                </div>
+              </div>
+            ))}
+
+            {subTab === 'completed' && completed.map((s) => (
+              <div key={s.id} className="session-item">
+                <div className="session-info">
+                  <div>
+                    {s.course_code && <span className="course-tag">{s.course_code}</span>}
+                    {statusBadge(s.status)}
+                  </div>
+                  <div className="person">{s.student_name || 'Student'}</div>
+                  <div className="time">{formatDate(s.date_time)} at {formatTime(s.date_time)}</div>
+                </div>
+              </div>
+            ))}
+          </>
         )}
 
-        {activeTab === 'profile' && (
-          <section className="dashboard-section">
-            <div className="profile-section">
-              <div className="profile-header-row">
-                <h2 className="section-heading">My Tutor Profile</h2>
-                {!editingProfile ? <button className="btn btn-outline" onClick={() => setEditingProfile(true)}>Edit Profile</button> : (
-                  <div className="profile-actions"><button className="btn btn-outline" onClick={() => setEditingProfile(false)}>Cancel</button><button className="btn btn-primary" onClick={handleProfileSave}>Save</button></div>
+        {/* ── Availability Tab ── */}
+        {tab === 'availability' && (
+          <>
+            <div className="page-header">
+              <h1>My Availability</h1>
+              <p>Manage your tutoring time slots</p>
+            </div>
+
+            {loadingSlots && <div className="spinner"></div>}
+
+            <button
+              className="btn btn-primary"
+              style={{ marginBottom: 20 }}
+              onClick={() => setShowAddForm(!showAddForm)}
+            >
+              {showAddForm ? '✕ Cancel' : '+ Add New Slot'}
+            </button>
+
+            {showAddForm && (
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="section-title">New Availability Slot</div>
+                <form onSubmit={handleAddSlot}>
+                  <div className="form-2col">
+                    <div className="form-group">
+                      <label>Date</label>
+                      <input type="date" value={newSlot.date} onChange={(e) => setNewSlot({ ...newSlot, date: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label>Location</label>
+                      <input type="text" placeholder="e.g. Library Room 3" value={newSlot.location} onChange={(e) => setNewSlot({ ...newSlot, location: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="form-2col">
+                    <div className="form-group">
+                      <label>Start Time</label>
+                      <input type="time" value={newSlot.start_time} onChange={(e) => setNewSlot({ ...newSlot, start_time: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label>End Time</label>
+                      <input type="time" value={newSlot.end_time} onChange={(e) => setNewSlot({ ...newSlot, end_time: e.target.value })} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button type="submit" className="btn btn-sm btn-gold" disabled={adding}>
+                      {adding ? 'Adding…' : 'Add Slot'}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-outline" onClick={() => setShowAddForm(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {!loadingSlots && Object.keys(grouped).length === 0 && (
+              <div className="empty-state"><div className="ei">📭</div><p>No availability slots yet.</p></div>
+            )}
+
+            {Object.entries(grouped).sort().map(([dateKey, dateSlots]) => (
+              <div key={dateKey} style={{ marginBottom: 24 }}>
+                <div className="section-title">{formatDate(dateKey)}</div>
+                {dateSlots.map((s) => (
+                  <div key={s.id} className="avail-item">
+                    <div>
+                      <div className="a-date">
+                        {s.start_time || formatTime(s.date_time)}
+                        {s.end_time ? ` – ${s.end_time}` : ''}
+                      </div>
+                      <div className="a-time">
+                        {s.location || 'No location'}
+                        {statusBadge(s.status)}
+                      </div>
+                    </div>
+                    {s.status?.toLowerCase() === 'open' && (
+                      <div className="session-actions">
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDeleteSlot(s.id)}>Delete</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* ── Profile Tab ── */}
+        {tab === 'profile' && (
+          <>
+            <div className="page-header">
+              <h1>My Profile</h1>
+              <p>View and edit your tutor profile</p>
+            </div>
+
+            {profileMsg && <div className="alert alert-success">{profileMsg}</div>}
+
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <div className="section-title" style={{ marginBottom: 0, border: 'none', padding: 0 }}>Profile Information</div>
+                {!editing ? (
+                  <button className="btn btn-sm btn-outline" onClick={() => setEditing(true)}>Edit</button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-sm btn-outline" onClick={() => { setEditing(false); setEditProfile({ full_name: profile.full_name, department: profile.department, bio: profile.bio }); setEditCourses(profile.courses); }}>Cancel</button>
+                    <button className="btn btn-sm btn-gold" onClick={handleSaveProfile} disabled={saving}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 )}
               </div>
-              <div className="profile-display">
-                <div className="profile-avatar-large">{user?.full_name?.charAt(0)?.toUpperCase() || 'T'}</div>
-                <div className="profile-details">
-                  <h3>{user?.full_name}</h3><p className="text-muted">{user?.email}</p>
-                  {editingProfile ? (
-                    <div className="profile-form">
-                      <div className="form-group"><label>Full Name</label><input className="form-input" value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} /></div>
-                      <div className="form-group"><label>Department</label><input className="form-input" placeholder="e.g., Computer Science" value={profileForm.department} onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })} /></div>
-                      <div className="form-group"><label>Bio</label><textarea className="form-input" rows={3} placeholder="Tell students about yourself..." value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} /></div>
-                      <div className="form-group"><label>Courses</label><input className="form-input" placeholder="e.g., CS101, CS201, MATH101" value={profileForm.courses} onChange={(e) => setProfileForm({ ...profileForm, courses: e.target.value })} /><span className="form-hint">Comma-separated course codes</span></div>
+
+              {editing ? (
+                <>
+                  <div className="form-group">
+                    <label>Full Name</label>
+                    <input value={editProfile.full_name} onChange={(e) => setEditProfile({ ...editProfile, full_name: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Department</label>
+                    <input value={editProfile.department} onChange={(e) => setEditProfile({ ...editProfile, department: e.target.value })} placeholder="e.g. Computer Science" />
+                  </div>
+                  <div className="form-group">
+                    <label>Bio</label>
+                    <textarea rows={3} value={editProfile.bio} onChange={(e) => setEditProfile({ ...editProfile, bio: e.target.value })} placeholder="Tell students about yourself..." style={{ resize: 'vertical' }} />
+                  </div>
+                  <div className="form-group">
+                    <label>Courses</label>
+                    <div className="course-toggles">
+                      {allCourses.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className={`course-toggle ${editCourses.includes(c) ? 'on' : ''}`}
+                          onClick={() => toggleCourse(c)}
+                        >
+                          {c}
+                        </button>
+                      ))}
                     </div>
-                  ) : (
-                    <div className="profile-info-grid">
-                      <div className="profile-info-item"><span className="info-label">Department</span><span className="info-value">{user?.department || 'Not specified'}</span></div>
-                      <div className="profile-info-item"><span className="info-label">Bio</span><span className="info-value">{user?.bio || 'No bio yet.'}</span></div>
-                      <div className="profile-info-item"><span className="info-label">Courses</span><span className="info-value">{Array.isArray(user?.courses) ? user.courses.join(', ') : (user?.courses || 'Not specified')}</span></div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Full Name</div>
+                    <div style={{ fontSize: '.95rem' }}>{profile.full_name || '—'}</div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Department</div>
+                    <div style={{ fontSize: '.95rem' }}>{profile.department || '—'}</div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Phone</div>
+                    <div style={{ fontSize: '.95rem' }}>{profile.phone || user?.phone || '—'}</div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Bio</div>
+                    <div style={{ fontSize: '.95rem', color: 'var(--text-mid)' }}>{profile.bio || 'No bio provided.'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Courses</div>
+                    <div className="course-toggles">
+                      {(profile.courses || []).length > 0
+                        ? profile.courses.map((c) => <span key={c} className="course-chip">{c}</span>)
+                        : <span style={{ fontSize: '.88rem', color: 'var(--text-muted)' }}>No courses listed.</span>
+                      }
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </div>
-          </section>
+          </>
         )}
       </main>
+
+      {/* Cancel Confirmation Modal */}
+      {cancelModal && (
+        <div className="modal-overlay" onClick={() => !cancelling && setCancelModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">Cancel Session?</div>
+            <p style={{ fontSize: '.9rem', color: 'var(--text-mid)' }}>
+              Are you sure you want to cancel this session with <strong>{cancelModal.student_name}</strong> on{' '}
+              {formatDate(cancelModal.date_time)}?
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-sm btn-outline" onClick={() => setCancelModal(null)} disabled={cancelling}>
+                Keep
+              </button>
+              <button className="btn btn-sm btn-danger" onClick={handleCancel} disabled={cancelling}>
+                {cancelling ? 'Cancelling…' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

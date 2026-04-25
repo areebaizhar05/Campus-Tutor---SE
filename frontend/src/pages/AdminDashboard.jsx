@@ -1,423 +1,380 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
-export default function AdminDashboard() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const [stats, setStats] = useState({
-    total_students: 0,
-    total_tutors: 0,
-    total_sessions: 0,
-    confirmed: 0,
-    completed: 0,
-    cancelled: 0,
-  });
-  const [sessions, setSessions] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [activeTab, setActiveTab] = useState('dashboard');
+/* ── Sidebar ──────────────────────────────── */
+function Sidebar({ tab, setTab, user, onLogout }) {
+  return (
+    <aside className="sidebar">
+      <div className="sb-logo">
+        <h2>Campus<span>Tutor</span></h2>
+        <div className="sb-role">Admin Portal</div>
+      </div>
+      <nav className="sb-nav">
+        <a className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>
+          <span className="nav-icon">📊</span> Dashboard
+        </a>
+        <a className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>
+          <span className="nav-icon">👥</span> Manage Users
+        </a>
+      </nav>
+      <div className="sb-bottom">
+        <div className="sb-user-name">{user?.full_name || 'Admin'}</div>
+        <div className="sb-user-email">{user?.email || ''}</div>
+        {user?.phone && <div className="sb-user-phone">{user.phone}</div>}
+        <button className="sb-logout" onClick={onLogout}>↪ Log Out</button>
+      </div>
+    </aside>
+  );
+}
 
-  // Manage Users state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [togglingId, setTogglingId] = useState(null);
-  const [changingRoleId, setChangingRoleId] = useState(null);
+/* ── Helpers ──────────────────────────────── */
+function formatDate(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatTime(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function statusBadge(status) {
+  const s = status?.toLowerCase();
+  if (s === 'confirmed') return <span className="badge badge-confirmed">Confirmed</span>;
+  if (s === 'completed') return <span className="badge badge-completed">Completed</span>;
+  if (s === 'cancelled') return <span className="badge badge-cancelled">Cancelled</span>;
+  return <span className="badge badge-open">{status || 'Open'}</span>;
+}
+function roleBadge(role) {
+  const r = role?.toLowerCase();
+  if (r === 'student') return <span className="badge badge-student">Student</span>;
+  if (r === 'tutor') return <span className="badge badge-tutor">Tutor</span>;
+  if (r === 'admin') return <span className="badge badge-admin">Admin</span>;
+  return <span className="badge">{role || 'Unknown'}</span>;
+}
 
-  const fetchDashboardData = useCallback(async () => {
-    try {
-      const [statsRes, sessionsRes, usersRes] = await Promise.all([
-        api.get('/admin/stats'),
-        api.get('/admin/sessions'),
-        api.get('/admin/users'),
-      ]);
-      setStats(
-        statsRes.data || {
-          total_students: 0,
-          total_tutors: 0,
-          total_sessions: 0,
-          confirmed: 0,
-          completed: 0,
-          cancelled: 0,
-        }
-      );
-      setSessions(sessionsRes.data.sessions || []);
-      setUsers(usersRes.data.users || []);
-    } catch (err) {
-      setError('Failed to load admin data. Please refresh.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+/* ── Actions Dropdown ─────────────────────── */
+function ActionsDropdown({ userId, currentRole, isActive, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    const handleClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  // Search users
-  const handleSearch = async (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
+  const handleAction = async (action) => {
+    setOpen(false);
     try {
-      const res = await api.get(`/admin/users?search=${encodeURIComponent(query)}`);
-      setUsers(res.data.users || []);
+      if (action === 'deactivate' || action === 'activate') {
+        await api.put(`/admin/users/${userId}/status`, { is_active: action === 'activate' });
+      } else {
+        await api.put(`/admin/users/${userId}/role`, { role: action });
+      }
+      onUpdate();
     } catch (err) {
-      // silent fail for search
+      alert(err.error || 'Action failed.');
     }
   };
-
-  // Toggle user active/inactive
-  const handleToggleActive = async (userId, currentStatus) => {
-    setTogglingId(userId);
-    try {
-      await api.put(`/admin/users/${userId}/toggle-active`);
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === userId ? { ...u, is_active: !currentStatus } : u
-        )
-      );
-      setSuccess(`User ${currentStatus ? 'deactivated' : 'activated'} successfully.`);
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err) {
-      setError('Failed to update user status.');
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
-  // Change user role
-  const handleChangeRole = async (userId, newRole) => {
-    if (!newRole) return;
-    setChangingRoleId(userId);
-    try {
-      await api.put(`/admin/users/${userId}/role`, { role: newRole });
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === userId ? { ...u, role: newRole } : u
-        )
-      );
-      setSuccess(`User role changed to ${newRole} successfully.`);
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err) {
-      setError('Failed to change user role.');
-    } finally {
-      setChangingRoleId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="dashboard-layout">
-        <div className="loading-screen">
-          <div className="spinner"></div>
-          <p>Loading admin dashboard...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="dashboard-layout">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <span className="brand-icon">🎓</span>
-          <span className="brand-text">CampusTutor</span>
-        </div>
-
-        <div className="sidebar-user">
-          <div className="user-avatar user-avatar-admin">A</div>
-          <div className="user-info">
-            <span className="user-name">Admin</span>
-            <span className="user-role">Administrator</span>
-          </div>
-        </div>
-
-        <nav className="sidebar-nav">
-          <button
-            className={`sidebar-link ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <span className="nav-icon">📊</span> Dashboard
-          </button>
-          <button
-            className={`sidebar-link ${activeTab === 'users' ? 'active' : ''}`}
-            onClick={() => setActiveTab('users')}
-          >
-            <span className="nav-icon">👥</span> Manage Users
-          </button>
-        </nav>
-
-        <div className="sidebar-footer">
-          <button className="sidebar-link sidebar-logout" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span> Log Out
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="btn btn-sm btn-outline" onClick={() => setOpen(!open)}>
+        ⋮ Actions
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 100,
+          background: 'var(--white)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          boxShadow: 'var(--shadow-md)', minWidth: 160, overflow: 'hidden'
+        }}>
+          <button className="action-item" style={{
+            display: 'block', width: '100%', padding: '9px 14px', border: 'none', background: 'none',
+            fontSize: '.82rem', fontWeight: 600, color: 'var(--text)', cursor: 'pointer', textAlign: 'left',
+            fontFamily: 'var(--font-body)'
+          }} onClick={() => handleAction('student')}>Set as Student</button>
+          <button className="action-item" style={{
+            display: 'block', width: '100%', padding: '9px 14px', border: 'none', background: 'none',
+            fontSize: '.82rem', fontWeight: 600, color: 'var(--text)', cursor: 'pointer', textAlign: 'left',
+            fontFamily: 'var(--font-body)'
+          }} onClick={() => handleAction('tutor')}>Set as Tutor</button>
+          <button className="action-item" style={{
+            display: 'block', width: '100%', padding: '9px 14px', border: 'none', background: 'none',
+            fontSize: '.82rem', fontWeight: 600, color: 'var(--text)', cursor: 'pointer', textAlign: 'left',
+            fontFamily: 'var(--font-body)'
+          }} onClick={() => handleAction('admin')}>Set as Admin</button>
+          <div style={{ height: 1, background: 'var(--border)' }} />
+          <button className="action-item" style={{
+            display: 'block', width: '100%', padding: '9px 14px', border: 'none', background: 'none',
+            fontSize: '.82rem', fontWeight: 600, color: isActive ? 'var(--error)' : 'var(--success)',
+            cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font-body)'
+          }} onClick={() => handleAction(isActive ? 'deactivate' : 'activate')}>
+            {isActive ? 'Deactivate' : 'Activate'}
           </button>
         </div>
-      </aside>
+      )}
+    </div>
+  );
+}
 
-      {/* Main Content */}
-      <main className="dashboard-main">
-        {/* Dashboard Tab - System Monitoring */}
-        {activeTab === 'dashboard' && (
+/* ── Main Component ───────────────────────── */
+export default function AdminDashboard() {
+  const { user, logout } = useAuth();
+  const [tab, setTab] = useState('dashboard');
+
+  /* Dashboard state */
+  const [stats, setStats] = useState({ total: 0, confirmed: 0, completed: 0, cancelled: 0, students: 0, tutors: 0 });
+  const [allSessions, setAllSessions] = useState([]);
+  const [loadingDash, setLoadingDash] = useState(false);
+
+  /* Users state */
+  const [users, setUsers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  /* Load dashboard */
+  useEffect(() => {
+    if (tab !== 'dashboard') return;
+    const load = async () => {
+      setLoadingDash(true);
+      try {
+        const [statsRes, sessionsRes] = await Promise.all([
+          api.get('/admin/stats'),
+          api.get('/admin/sessions'),
+        ]);
+        setStats(statsRes.stats || statsRes);
+        setAllSessions(
+          Array.isArray(sessionsRes.sessions)
+            ? sessionsRes.sessions
+            : Array.isArray(sessionsRes)
+            ? sessionsRes
+            : []
+        );
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingDash(false);
+      }
+    };
+    load();
+  }, [tab]);
+
+  /* Load users */
+  useEffect(() => {
+    if (tab !== 'users') return;
+    const load = async () => {
+      setLoadingUsers(true);
+      try {
+        const data = await api.get('/admin/users');
+        setUsers(Array.isArray(data.users) ? data.users : Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    load();
+  }, [tab]);
+
+  const filteredUsers = searchQuery.trim()
+    ? users.filter(
+        (u) =>
+          (u.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (u.phone || '').includes(searchQuery)
+      )
+    : users;
+
+  const maxSessions = Math.max(stats.confirmed, stats.completed, stats.cancelled, 1);
+
+  return (
+    <div className="app-shell">
+      <Sidebar tab={tab} setTab={setTab} user={user} onLogout={logout} />
+
+      <main className="main">
+        {/* ── Dashboard Tab ── */}
+        {tab === 'dashboard' && (
           <>
-            <header className="dashboard-header">
+            <div className="page-header">
               <h1>Dashboard</h1>
-              <p className="text-muted">System monitoring and session overview</p>
-            </header>
+              <p>Overview of platform activity</p>
+            </div>
 
-            {error && <div className="alert alert-error">{error}</div>}
+            {loadingDash && <div className="spinner"></div>}
 
-            {/* Stats Cards */}
-            <div className="stats-row stats-row-4">
-              <div className="stat-card">
-                <div className="stat-icon">👥</div>
-                <div className="stat-info">
-                  <span className="stat-value">{stats.total_students}</span>
-                  <span className="stat-label">Students</span>
+            <div className="stats-row">
+              <div className="stat-card navy">
+                <div className="stat-value">{stats.total}</div>
+                <div className="stat-label">Total Sessions</div>
+              </div>
+              <div className="stat-card blue">
+                <div className="stat-value">{stats.confirmed}</div>
+                <div className="stat-label">Confirmed</div>
+              </div>
+              <div className="stat-card success">
+                <div className="stat-value">{stats.completed}</div>
+                <div className="stat-label">Completed</div>
+              </div>
+              <div className="stat-card gold">
+                <div className="stat-value">{stats.cancelled}</div>
+                <div className="stat-label">Cancelled</div>
+              </div>
+              <div className="stat-card blue">
+                <div className="stat-value">{stats.students}</div>
+                <div className="stat-label">Students</div>
+              </div>
+              <div className="stat-card navy">
+                <div className="stat-value">{stats.tutors}</div>
+                <div className="stat-label">Tutors</div>
+              </div>
+            </div>
+
+            {/* Session activity bars */}
+            <div className="card" style={{ marginBottom: 28 }}>
+              <div className="section-title">Session Activity</div>
+              <div className="bar-row">
+                <div className="bar-meta">
+                  <span>Confirmed</span>
+                  <span>{stats.confirmed}</span>
+                </div>
+                <div className="bar-track">
+                  <div className="bar-fill" style={{ width: `${(stats.confirmed / maxSessions) * 100}%`, background: 'var(--blue)' }} />
                 </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-icon">👨‍🏫</div>
-                <div className="stat-info">
-                  <span className="stat-value">{stats.total_tutors}</span>
-                  <span className="stat-label">Tutors</span>
+              <div className="bar-row">
+                <div className="bar-meta">
+                  <span>Completed</span>
+                  <span>{stats.completed}</span>
+                </div>
+                <div className="bar-track">
+                  <div className="bar-fill" style={{ width: `${(stats.completed / maxSessions) * 100}%`, background: 'var(--success)' }} />
                 </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-icon">📅</div>
-                <div className="stat-info">
-                  <span className="stat-value">{stats.total_sessions}</span>
-                  <span className="stat-label">Total Sessions</span>
+              <div className="bar-row">
+                <div className="bar-meta">
+                  <span>Cancelled</span>
+                  <span>{stats.cancelled}</span>
                 </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">✅</div>
-                <div className="stat-info">
-                  <span className="stat-value">{stats.completed}</span>
-                  <span className="stat-label">Completed</span>
+                <div className="bar-track">
+                  <div className="bar-fill" style={{ width: `${(stats.cancelled / maxSessions) * 100}%`, background: 'var(--error)' }} />
                 </div>
               </div>
             </div>
 
-            {/* Session Status Chart */}
-            <section className="dashboard-section">
-              <h2 className="section-heading">Session Status Breakdown</h2>
-              <div className="chart-container">
-                {stats.total_sessions === 0 ? (
-                  <div className="empty-state">
-                    <span className="empty-icon">📭</span>
-                    <h3>No sessions recorded yet</h3>
-                    <p>Chart will populate once students start booking sessions.</p>
-                  </div>
-                ) : (
-                  <div className="bar-chart">
-                    <div className="bar-group">
-                      <div className="bar-value">{stats.confirmed}</div>
-                      <div
-                        className="bar bar-confirmed"
-                        style={{
-                          height: `${Math.max(10, (stats.confirmed / Math.max(1, stats.total_sessions)) * 160)}px`,
-                        }}
-                      ></div>
-                      <span className="bar-label">Confirmed</span>
-                    </div>
-                    <div className="bar-group">
-                      <div className="bar-value">{stats.completed}</div>
-                      <div
-                        className="bar bar-completed"
-                        style={{
-                          height: `${Math.max(10, (stats.completed / Math.max(1, stats.total_sessions)) * 160)}px`,
-                        }}
-                      ></div>
-                      <span className="bar-label">Completed</span>
-                    </div>
-                    <div className="bar-group">
-                      <div className="bar-value">{stats.cancelled}</div>
-                      <div
-                        className="bar bar-cancelled"
-                        style={{
-                          height: `${Math.max(10, (stats.cancelled / Math.max(1, stats.total_sessions)) * 160)}px`,
-                        }}
-                      ></div>
-                      <span className="bar-label">Cancelled</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* All Sessions Table */}
-            <section className="dashboard-section">
-              <h2 className="section-heading">All Sessions</h2>
-              {sessions.length === 0 ? (
-                <div className="empty-state">
-                  <span className="empty-icon">📭</span>
-                  <h3>No sessions found</h3>
-                  <p>Sessions will appear here once students start booking.</p>
-                </div>
-              ) : (
-                <div className="table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>ID</th>
-                        <th>Student</th>
-                        <th>Tutor</th>
-                        <th>Topic</th>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Status</th>
+            {/* All sessions table */}
+            <div className="section-title">All Sessions</div>
+            {allSessions.length === 0 && !loadingDash && (
+              <div className="empty-state"><div className="ei">📋</div><p>No sessions recorded yet.</p></div>
+            )}
+            {allSessions.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Tutor</th>
+                      <th>Course</th>
+                      <th>Date</th>
+                      <th>Time</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allSessions.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.student_name || '—'}</td>
+                        <td>{s.tutor_name || '—'}</td>
+                        <td>{s.course_code ? <span className="course-tag">{s.course_code}</span> : '—'}</td>
+                        <td>{formatDate(s.date_time)}</td>
+                        <td>{formatTime(s.date_time)}</td>
+                        <td>{statusBadge(s.status)}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {sessions.map((session) => (
-                        <tr key={session.id}>
-                          <td>#{session.id}</td>
-                          <td>{session.student_name || 'N/A'}</td>
-                          <td>{session.tutor_name || 'N/A'}</td>
-                          <td>{session.topic || '-'}</td>
-                          <td>{session.date || session.slot?.date || '-'}</td>
-                          <td>{session.time_slot || session.slot?.start_time || '-'}</td>
-                          <td>
-                            <span className={`badge badge-${session.status}`}>
-                              {session.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
 
-        {/* Manage Users Tab - User Management */}
-        {activeTab === 'users' && (
+        {/* ── Manage Users Tab ── */}
+        {tab === 'users' && (
           <>
-            <header className="dashboard-header">
+            <div className="page-header">
               <h1>Manage Users</h1>
-              <p className="text-muted">View, search, and manage user accounts</p>
-            </header>
+              <p>View and manage all platform users</p>
+            </div>
 
-            {error && <div className="alert alert-error">{error}</div>}
-            {success && <div className="alert alert-success">{success}</div>}
+            <div className="search-bar">
+              <input
+                placeholder="Search by name, email, or phone…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
 
-            {/* Search Bar */}
-            <section className="dashboard-section">
-              <div className="admin-search-bar">
-                <input
-                  type="text"
-                  className="form-input admin-search-input"
-                  placeholder="Search users by name or email..."
-                  value={searchQuery}
-                  onChange={handleSearch}
-                />
-                <span className="admin-search-count">{users.length} user{users.length !== 1 ? 's' : ''} found</span>
-              </div>
-            </section>
+            {loadingUsers && <div className="spinner"></div>}
 
-            {/* Users Table */}
-            <section className="dashboard-section">
-              <h2 className="section-heading">User Accounts</h2>
-              {users.length === 0 ? (
-                <div className="empty-state">
-                  <span className="empty-icon">👥</span>
-                  <h3>No users found</h3>
-                  <p>
-                    {searchQuery
-                      ? 'Try adjusting your search query.'
-                      : 'Users will appear here once they sign up.'}
-                  </p>
-                </div>
-              ) : (
-                <div className="table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Verified</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((u) => (
-                        <tr key={u.id} className={!u.is_active ? 'row-inactive' : ''}>
-                          <td>#{u.id}</td>
-                          <td className="user-name-cell">
-                            {u.full_name || u.name || 'N/A'}
-                            {u.role === 'admin' && (
-                              <span className="badge badge-role-admin admin-badge-inline">Admin</span>
-                            )}
-                          </td>
-                          <td>{u.email}</td>
+            {!loadingUsers && filteredUsers.length === 0 && (
+              <div className="empty-state"><div className="ei">👥</div><p>No users found.</p></div>
+            )}
+
+            {filteredUsers.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th>Role</th>
+                      <th>Verified</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.map((u) => {
+                      const isInactive = !u.is_active && u.is_active !== undefined;
+                      return (
+                        <tr key={u.id} className={isInactive ? 'inactive-row' : ''}>
+                          <td style={{ fontWeight: 600 }}>{u.full_name || '—'}</td>
+                          <td>{u.email || '—'}</td>
+                          <td>{u.phone || '—'}</td>
+                          <td>{roleBadge(u.role)}</td>
+                          <td>{u.is_verified ? '✅ Yes' : '❌ No'}</td>
                           <td>
-                            <span className={`badge badge-role-${u.role}`}>
-                              {u.role}
+                            <span style={{
+                              fontSize: '.78rem', fontWeight: 700,
+                              color: u.is_active !== false ? 'var(--success)' : 'var(--error)'
+                            }}>
+                              {u.is_active !== false ? 'Active' : 'Inactive'}
                             </span>
                           </td>
                           <td>
-                            <span className={`badge badge-${u.is_verified ? 'completed' : 'pending'}`}>
-                              {u.is_verified ? 'Yes' : 'No'}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={`badge badge-${u.is_active ? 'active' : 'deactivated'}`}>
-                              {u.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="action-cells">
-                              {u.role === 'admin' ? (
-                                <span className="action-disabled">Protected</span>
-                              ) : (
-                                <>
-                                  <select
-                                    className="role-select"
-                                    value={u.role}
-                                    onChange={(e) => handleChangeRole(u.id, e.target.value)}
-                                    disabled={changingRoleId === u.id}
-                                  >
-                                    <option value="student">Student</option>
-                                    <option value="tutor">Tutor</option>
-                                    <option value="admin">Admin</option>
-                                  </select>
-                                  <button
-                                    className={`btn btn-sm ${u.is_active ? 'btn-danger-outline' : 'btn-success-outline'}`}
-                                    onClick={() => handleToggleActive(u.id, u.is_active)}
-                                    disabled={togglingId === u.id}
-                                  >
-                                    {togglingId === u.id ? (
-                                      <span className="btn-spinner"></span>
-                                    ) : u.is_active ? (
-                                      'Deactivate'
-                                    ) : (
-                                      'Activate'
-                                    )}
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            <ActionsDropdown
+                              userId={u.id}
+                              currentRole={u.role}
+                              isActive={u.is_active !== false}
+                              onUpdate={async () => {
+                                try {
+                                  const data = await api.get('/admin/users');
+                                  setUsers(Array.isArray(data.users) ? data.users : []);
+                                } catch {}
+                              }}
+                            />
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </main>
