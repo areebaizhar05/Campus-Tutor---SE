@@ -111,3 +111,78 @@ def complete_session(session_id):
     session.status = 'completed'
     db.session.commit()
     return jsonify({'session': session.to_dict()}), 200
+
+
+# ── FR9: Session Rescheduling ─────────────────────────────────────────────────
+
+@sessions_bp.route('/<int:session_id>/reschedule', methods=['PUT'])
+@jwt_required()
+def reschedule_session(session_id):
+    """
+    Reschedule a confirmed session to a new time slot with the same tutor.
+
+    Flow:
+      1. Validate the session is confirmed and the caller is student or tutor.
+      2. Cancel the old session (status → cancelled, old slot → open).
+      3. Book the new slot (new session, status → confirmed, new slot → booked).
+
+    Body: { "new_slot_id": <int> }
+    """
+    user_id = int(get_jwt_identity())
+    session = TutoringSession.query.get(session_id)
+
+    if not session:
+        return jsonify({'error': 'Session not found.'}), 404
+
+    # Only the student or tutor of this session can reschedule
+    if session.student_id != user_id and session.tutor_id != user_id:
+        return jsonify({'error': 'Unauthorized.'}), 403
+
+    if session.status != 'confirmed':
+        return jsonify({'error': 'Only confirmed sessions can be rescheduled.'}), 400
+
+    data         = request.get_json() or {}
+    new_slot_id  = data.get('new_slot_id')
+
+    if not new_slot_id:
+        return jsonify({'error': 'New slot ID is required.'}), 400
+
+    # Validate the new slot
+    new_slot = AvailabilitySlot.query.get(new_slot_id)
+    if not new_slot:
+        return jsonify({'error': 'New slot not found.'}), 404
+
+    if new_slot.status != 'open':
+        return jsonify({'error': 'Selected slot is no longer available.'}), 409
+
+    # Must reschedule with the same tutor
+    if new_slot.tutor_id != session.tutor_id:
+        return jsonify({'error': 'You can only reschedule with the same tutor.'}), 400
+
+    # Prevent booking the same slot
+    if new_slot.id == session.slot_id:
+        return jsonify({'error': 'This is already your current slot.'}), 400
+
+    # ── Perform the reschedule ──
+
+    # 1. Open the old slot
+    old_slot = AvailabilitySlot.query.get(session.slot_id)
+    if old_slot:
+        old_slot.status = 'open'
+
+    # 2. Cancel the old session
+    session.status = 'cancelled'
+
+    # 3. Book the new slot and create a new session
+    new_slot.status = 'booked'
+    new_session = TutoringSession(
+        student_id  = session.student_id,
+        tutor_id    = session.tutor_id,
+        slot_id     = new_slot_id,
+        course_code = session.course_code,
+        status      = 'confirmed',
+    )
+    db.session.add(new_session)
+    db.session.commit()
+
+    return jsonify({'session': new_session.to_dict()}), 200

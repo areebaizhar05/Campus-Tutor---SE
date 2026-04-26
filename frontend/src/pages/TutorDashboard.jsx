@@ -18,8 +18,14 @@ export default function TutorDashboard() {
   const [slotForm, setSlotForm] = useState({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
   const [slotMsg, setSlotMsg] = useState('');
 
+  // ── FR9: Reschedule state ──
+  const [reschedulingSession, setReschedulingSession] = useState(null);
+  const [rescheduleSlots, setRescheduleSlots] = useState([]);
+  const [loadingRescheduleSlots, setLoadingRescheduleSlots] = useState(false);
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
+
   useEffect(() => {
-    fetchData();
+    fetchAllData();
     if (user) setProfileForm({
       full_name: user.full_name || '',
       department: user.department || '',
@@ -29,11 +35,12 @@ export default function TutorDashboard() {
     });
   }, []);
 
-  const fetchData = async () => {
+  const fetchAllData = async () => {
     try {
       const [sRes, slRes] = await Promise.all([api.get('/sessions/my'), api.get('/tutors/my-availability')]);
       setSessions(sRes.data.sessions || []);
       setSlots(slRes.data.slots || []);
+      setError('');
     } catch (err) { setError('Failed to load data.'); }
     finally { setLoading(false); }
   };
@@ -71,7 +78,7 @@ export default function TutorDashboard() {
       await api.post('/tutors/availability', slotForm);
       setSlotMsg('Slot added successfully!');
       setSlotForm({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
-      fetchData();
+      await fetchAllData();
       setTimeout(() => setSlotMsg(''), 3000);
     } catch (err) { setSlotMsg(err.response?.data?.error || 'Failed to add slot.'); }
   };
@@ -81,32 +88,80 @@ export default function TutorDashboard() {
     try {
       await api.delete(`/tutors/availability/${slotId}`);
       setSlotMsg('Slot deleted.');
-      fetchData();
+      await fetchAllData();
       setTimeout(() => setSlotMsg(''), 3000);
     } catch (err) { setSlotMsg(err.response?.data?.error || 'Failed to delete slot.'); }
   };
 
   const handleCancelSession = async (sessionId) => {
     if (!window.confirm('Are you sure you want to cancel this session?')) return;
+    setError('');
+    setSuccess('');
     try {
       await api.put(`/sessions/${sessionId}/cancel`);
+      await fetchAllData();
       setSuccess('Session cancelled.');
-      fetchData();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) { setError(err.response?.data?.error || 'Failed to cancel session.'); }
   };
 
   const handleCompleteSession = async (sessionId) => {
     if (!window.confirm('Mark this session as completed?')) return;
+    setError('');
+    setSuccess('');
     try {
       await api.put(`/sessions/${sessionId}/complete`);
+      await fetchAllData();
       setSuccess('Session marked as completed.');
-      fetchData();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) { setError(err.response?.data?.error || 'Failed to complete session.'); }
   };
 
-  const upcoming = sessions.filter(s => s.status === 'confirmed');
+  // ── FR9: Reschedule Session ──
+  const handleStartReschedule = async (session) => {
+    setError('');
+    setSuccess('');
+    setReschedulingSession(session);
+    setLoadingRescheduleSlots(true);
+    setRescheduleSlots([]);
+    try {
+      // For tutor reschedule, show the tutor's own open slots (excluding current slot)
+      const res = await api.get(`/tutors/my-availability`);
+      const availableSlots = (res.data.slots || []).filter(s => s.status === 'open' && s.id !== session.slot?.id);
+      setRescheduleSlots(availableSlots);
+    } catch (err) {
+      setError('Failed to load available slots for rescheduling.');
+    } finally {
+      setLoadingRescheduleSlots(false);
+    }
+  };
+
+  const handleConfirmReschedule = async (newSlotId) => {
+    if (!window.confirm('Reschedule to this slot? The current session will be cancelled and a new one will be booked.')) return;
+    setRescheduleLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api.put(`/sessions/${reschedulingSession.id}/reschedule`, { new_slot_id: newSlotId });
+      setReschedulingSession(null);
+      setRescheduleSlots([]);
+      await fetchAllData();
+      setSuccess('Session rescheduled successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to reschedule session.');
+    } finally {
+      setRescheduleLoading(false);
+    }
+  };
+
+  const handleCancelReschedule = () => {
+    setReschedulingSession(null);
+    setRescheduleSlots([]);
+    setError('');
+  };
+
+  const upcoming  = sessions.filter(s => s.status === 'confirmed');
   const completed = sessions.filter(s => s.status === 'completed');
   const cancelled = sessions.filter(s => s.status === 'cancelled');
   const openSlots = slots.filter(s => s.status === 'open');
@@ -154,12 +209,13 @@ export default function TutorDashboard() {
                 <div key={s.id} className="session-card">
                   <div className="session-header"><h3>{s.course_code}</h3><span className={`badge badge-${s.status}`}>{s.status}</span></div>
                   <div className="session-details">
-                    <p><strong>Student:</strong> {s.student_name || 'TBD'}{s.tutor_phone ? '' : ''}</p>
+                    <p><strong>Student:</strong> {s.student_name || 'TBD'}</p>
                     <p><strong>Date:</strong> {s.slot?.date || 'TBD'}</p>
                     <p><strong>Time:</strong> {s.slot?.start_time}{s.slot?.end_time ? ` — ${s.slot.end_time}` : ''}</p>
                     <p><strong>Location:</strong> {s.slot?.location || 'N/A'}</p>
                   </div>
                   <div className="session-actions">
+                    <button className="btn btn-sm btn-primary-outline" onClick={() => handleStartReschedule(s)}>Reschedule</button>
                     <button className="btn btn-sm btn-success-outline" onClick={() => handleCompleteSession(s.id)}>Mark Complete</button>
                     <button className="btn btn-sm btn-danger-outline" onClick={() => handleCancelSession(s.id)}>Cancel Session</button>
                   </div>
@@ -263,6 +319,56 @@ export default function TutorDashboard() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* ── FR9: Reschedule Modal / Panel ── */}
+        {reschedulingSession && (
+          <div className="reschedule-overlay" onClick={handleCancelReschedule}>
+            <div className="reschedule-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="reschedule-header">
+                <h2>Reschedule Session</h2>
+                <button className="btn btn-sm btn-outline" onClick={handleCancelReschedule}>✕ Close</button>
+              </div>
+
+              <div className="reschedule-current">
+                <h3>Current Session</h3>
+                <div className="session-details">
+                  <p><strong>Course:</strong> {reschedulingSession.course_code}</p>
+                  <p><strong>Student:</strong> {reschedulingSession.student_name || 'N/A'}</p>
+                  <p><strong>Current Date:</strong> {reschedulingSession.slot?.date || 'N/A'}</p>
+                  <p><strong>Current Time:</strong> {reschedulingSession.slot?.start_time || 'N/A'} — {reschedulingSession.slot?.end_time || 'N/A'}</p>
+                  <p><strong>Location:</strong> {reschedulingSession.slot?.location || 'N/A'}</p>
+                </div>
+              </div>
+
+              <div className="reschedule-slots">
+                <h3>Select a New Slot</h3>
+                {loadingRescheduleSlots ? (
+                  <div className="loading-screen"><div className="spinner"></div><p>Loading available slots...</p></div>
+                ) : rescheduleSlots.length === 0 ? (
+                  <div className="empty-state"><span className="empty-icon">🕐</span><h3>No available slots</h3><p>You have no other open slots. Add new availability first.</p></div>
+                ) : (
+                  <div className="slots-grid">
+                    {rescheduleSlots.map(slot => (
+                      <div key={slot.id} className="slot-card slot-card-reschedule">
+                        <div className="slot-date">{slot.date}</div>
+                        <div className="slot-time">{slot.start_time} — {slot.end_time}</div>
+                        <div className="slot-loc">{slot.location}</div>
+                        <button
+                          className="btn btn-sm btn-gold"
+                          style={{ marginTop: '.5rem' }}
+                          onClick={() => handleConfirmReschedule(slot.id)}
+                          disabled={rescheduleLoading}
+                        >
+                          {rescheduleLoading ? 'Rescheduling...' : 'Reschedule Here'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>

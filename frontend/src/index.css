@@ -349,6 +349,39 @@ h1, h2, h3, h4, h5, h6 { color: var(--gray-900); line-height: 1.3; }
 .phone-display { font-size: .8125rem; color: var(--gray-600); }
 .phone-label { color: var(--gray-400); font-size: .75rem; }
 
+/* ── Primary Outline Button ── */
+.btn-primary-outline { background: var(--white); color: var(--primary); border-color: var(--primary); }
+.btn-primary-outline:hover:not(:disabled) { background: var(--primary); color: var(--white); }
+
+/* ── FR9: Reschedule Overlay ── */
+.reschedule-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 2rem; animation: fadeIn .2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.reschedule-panel {
+  background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 600px; max-height: 80vh; overflow-y: auto;
+  padding: 1.5rem; animation: slideUp .25s ease;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.reschedule-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1.25rem; padding-bottom: .75rem; border-bottom: 2px solid var(--gray-200);
+}
+.reschedule-header h2 { font-size: 1.25rem; font-weight: 700; }
+.reschedule-current {
+  background: var(--gray-50); border: 1px solid var(--gray-200);
+  border-radius: var(--radius); padding: 1rem; margin-bottom: 1.25rem;
+}
+.reschedule-current h3 { font-size: .875rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: .025em; margin-bottom: .5rem; }
+.reschedule-current .session-details p { font-size: .875rem; }
+.reschedule-slots h3 { font-size: .875rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: .025em; margin-bottom: .5rem; }
+.slot-card-reschedule { cursor: default; }
+.slot-card-reschedule:hover { border-color: var(--gold); background: var(--gold-light); }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .dashboard-layout { flex-direction: column; }
