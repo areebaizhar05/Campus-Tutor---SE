@@ -11,7 +11,7 @@ class User(db.Model):
     full_name     = db.Column(db.String(100), nullable=False)
     email         = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    phone         = db.Column(db.String(15), nullable=True)      # +923001234567
+    phone         = db.Column(db.String(15), nullable=False)     # +923001234567
     role          = db.Column(db.String(20),  nullable=False)     # student | tutor | admin
     is_active     = db.Column(db.Boolean, default=True)
     is_verified   = db.Column(db.Boolean, default=False)
@@ -33,7 +33,7 @@ class User(db.Model):
             'id':          self.id,
             'full_name':   self.full_name,
             'email':       self.email,
-            'phone':       self.phone or '',
+            'phone':       self.phone,
             'role':        self.role,
             'is_active':   self.is_active,
             'is_verified': self.is_verified,

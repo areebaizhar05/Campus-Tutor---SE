@@ -22,7 +22,7 @@ export default function Signup() {
     if (!form.email.endsWith('@st.habib.edu.pk')) { setError('Only @st.habib.edu.pk email addresses are allowed.'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
     if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    if (form.phone && (form.phone.length !== 10 || !/^\d{10}$/.test(form.phone))) { setError('Phone number must be exactly 10 digits (without +92).'); return; }
+    if (!form.phone || form.phone.length !== 10 || !/^\d{10}$/.test(form.phone)) { setError('Phone number is required and must be exactly 10 digits (without +92).'); return; }
     setLoading(true);
     try {
       const payload = {
@@ -31,7 +31,7 @@ export default function Signup() {
         password: form.password,
         role: form.role,
       };
-      if (form.phone) payload.phone = '+92' + form.phone;
+      payload.phone = '+92' + form.phone;
       const res = await api.post('/auth/register', payload);
       const { token, user } = res.data;
       login(token, user);
@@ -71,12 +71,12 @@ export default function Signup() {
               <span className="form-hint">Must be a @st.habib.edu.pk email</span>
             </div>
             <div className="form-group">
-              <label htmlFor="phone">Phone Number (optional)</label>
+              <label htmlFor="phone">Phone Number</label>
               <div className="phone-group">
                 <span className="phone-prefix">+92</span>
-                <input id="phone" name="phone" type="tel" placeholder="3001234567" value={form.phone} onChange={handleChange} maxLength={10} className="form-input" />
+                <input id="phone" name="phone" type="tel" placeholder="3001234567" value={form.phone} onChange={handleChange} maxLength={10} required className="form-input" />
               </div>
-              <span className="form-hint">10 digits without +92 prefix</span>
+              <span className="form-hint">10 digits without +92 prefix (required)</span>
             </div>
             <div className="form-group">
               <label htmlFor="password">Password</label>

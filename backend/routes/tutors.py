@@ -126,10 +126,9 @@ def update_profile():
     if 'bio'        in data: user.bio        = data['bio'].strip()
     if 'phone'      in data:
         phone = data['phone'].strip()
-        if phone:
-            if not phone.startswith('+92') or len(phone) != 13 or not phone[3:].isdigit():
-                return jsonify({'error': 'Phone number must be +92XXXXXXXXXX (13 digits).'}), 400
-        user.phone = phone if phone else None
+        if not phone.startswith('+92') or len(phone) != 13 or not phone[3:].isdigit():
+            return jsonify({'error': 'Phone number must be +92XXXXXXXXXX (13 digits).'}), 400
+        user.phone = phone
     if 'courses'    in data:
         raw = data['courses']
         user.courses = ','.join(raw) if isinstance(raw, list) else raw

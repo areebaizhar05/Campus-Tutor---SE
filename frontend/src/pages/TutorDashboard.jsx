@@ -51,15 +51,11 @@ export default function TutorDashboard() {
     try {
       const payload = { ...profileForm };
       if (payload.courses) payload.courses = payload.courses.split(',').map(c => c.trim()).filter(Boolean);
-      if (payload.phone) {
-        if (payload.phone.length !== 10 || !/^\d{10}$/.test(payload.phone)) {
-          setError('Phone number must be exactly 10 digits (without +92).');
-          return;
-        }
-        payload.phone = '+92' + payload.phone;
-      } else {
-        payload.phone = '';
+      if (!payload.phone || payload.phone.length !== 10 || !/^\d{10}$/.test(payload.phone)) {
+        setError('Phone number is required and must be exactly 10 digits (without +92).');
+        return;
       }
+      payload.phone = '+92' + payload.phone;
       const res = await api.put('/tutors/profile', payload);
       if (updateUser && res.data.user) updateUser(res.data.user);
       setEditingProfile(false);
@@ -299,9 +295,9 @@ export default function TutorDashboard() {
                         <label>Phone Number</label>
                         <div className="phone-group">
                           <span className="phone-prefix">+92</span>
-                          <input className="form-input" placeholder="3001234567" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} maxLength={10} />
+                          <input className="form-input" placeholder="3001234567" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} maxLength={10} required />
                         </div>
-                        <span className="form-hint">10 digits without +92 prefix</span>
+                        <span className="form-hint">10 digits without +92 prefix (required)</span>
                       </div>
                       <div className="form-group"><label>Department</label><input className="form-input" placeholder="e.g., Computer Science" value={profileForm.department} onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })} /></div>
                       <div className="form-group"><label>Bio</label><textarea className="form-input" rows={3} placeholder="Tell students about yourself..." value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} /></div>
@@ -309,7 +305,7 @@ export default function TutorDashboard() {
                     </div>
                   ) : (
                     <div className="profile-info-grid">
-                      <div className="profile-info-item"><span className="info-label">Phone</span><span className="info-value">{user?.phone || 'Not provided'}</span></div>
+                      <div className="profile-info-item"><span className="info-label">Phone</span><span className="info-value">{user?.phone}</span></div>
                       <div className="profile-info-item"><span className="info-label">Department</span><span className="info-value">{user?.department || 'Not specified'}</span></div>
                       <div className="profile-info-item"><span className="info-label">Bio</span><span className="info-value">{user?.bio || 'No bio yet.'}</span></div>
                       <div className="profile-info-item"><span className="info-label">Courses</span><span className="info-value">{Array.isArray(user?.courses) ? user.courses.join(', ') : (user?.courses || 'Not specified')}</span></div>

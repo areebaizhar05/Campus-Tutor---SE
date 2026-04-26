@@ -82,7 +82,7 @@ def register():
     role      = data.get('role', '')
     phone     = data.get('phone', '').strip()
 
-    if not all([full_name, email, password, role]):
+    if not all([full_name, email, password, role, phone]):
         return jsonify({'error': 'All fields are required.'}), 400
 
     if role not in ('student', 'tutor'):
@@ -98,11 +98,10 @@ def register():
         return jsonify({'error': 'Password must be at least 8 characters.'}), 400
 
     # Phone validation: must start with +92 and be 13 digits total
-    if phone:
-        if not phone.startswith('+92') or len(phone) != 13:
-            return jsonify({'error': 'Phone number must be in format +92XXXXXXXXXX (13 digits).'}), 400
-        if not phone[3:].isdigit():
-            return jsonify({'error': 'Phone number contains invalid characters.'}), 400
+    if not phone.startswith('+92') or len(phone) != 13:
+        return jsonify({'error': 'Phone number must be in format +92XXXXXXXXXX (13 digits).'}), 400
+    if not phone[3:].isdigit():
+        return jsonify({'error': 'Phone number contains invalid characters.'}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'An account with this email already exists.'}), 409
@@ -112,7 +111,7 @@ def register():
         full_name     = full_name,
         email         = email,
         password_hash = generate_password_hash(password),
-        phone         = phone if phone else None,
+        phone         = phone,
         role          = role,
         is_verified   = False,
         otp_code      = otp,
