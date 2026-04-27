@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, AvailabilitySlot, TutoringSession
+from datetime import datetime
 
 tutors_bp = Blueprint('tutors', __name__)
 
@@ -66,13 +67,21 @@ def add_availability():
     if start_time >= end_time:
         return jsonify({'error': 'End time must be after start time.'}), 400
 
+    # Prevent creating slots in the past
+    try:
+        slot_start_dt = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return jsonify({'error': 'Invalid date or time format.'}), 400
+    if slot_start_dt <= datetime.now():
+        return jsonify({'error': 'Cannot create a slot that starts in the past.'}), 400
+
     # Prevent duplicate slot (same tutor, same date, overlapping time)
     existing = AvailabilitySlot.query.filter_by(tutor_id=user_id, date=date).all()
     for ex in existing:
         # Overlap check: not (end <= ex.start or start >= ex.end)
         if not (end_time <= ex.start_time or start_time >= ex.end_time):
             return jsonify({
-                'error': f'You already have a slot on {date} that overlaps with {ex.start_time}–{ex.end_time}.'
+                'error': f'You already have a slot on {date} that overlaps with {ex.start_time}\u2013{ex.end_time}.'
             }), 409
 
     slot = AvailabilitySlot(
@@ -126,9 +135,10 @@ def update_profile():
     if 'bio'        in data: user.bio        = data['bio'].strip()
     if 'phone'      in data:
         phone = data['phone'].strip()
-        if not phone.startswith('+92') or len(phone) != 13 or not phone[3:].isdigit():
-            return jsonify({'error': 'Phone number must be +92XXXXXXXXXX (13 digits).'}), 400
-        user.phone = phone
+        if phone:
+            if not phone.startswith('+92') or len(phone) != 13 or not phone[3:].isdigit():
+                return jsonify({'error': 'Phone number must be +92XXXXXXXXXX (13 digits).'}), 400
+        user.phone = phone if phone else None
     if 'courses'    in data:
         raw = data['courses']
         user.courses = ','.join(raw) if isinstance(raw, list) else raw

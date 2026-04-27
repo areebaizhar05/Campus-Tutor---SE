@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
+function getTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function getNowTimeStr() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 export default function TutorDashboard() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -18,14 +28,8 @@ export default function TutorDashboard() {
   const [slotForm, setSlotForm] = useState({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
   const [slotMsg, setSlotMsg] = useState('');
 
-  // ── FR9: Reschedule state ──
-  const [reschedulingSession, setReschedulingSession] = useState(null);
-  const [rescheduleSlots, setRescheduleSlots] = useState([]);
-  const [loadingRescheduleSlots, setLoadingRescheduleSlots] = useState(false);
-  const [rescheduleLoading, setRescheduleLoading] = useState(false);
-
   useEffect(() => {
-    fetchAllData();
+    fetchData();
     if (user) setProfileForm({
       full_name: user.full_name || '',
       department: user.department || '',
@@ -35,12 +39,11 @@ export default function TutorDashboard() {
     });
   }, []);
 
-  const fetchAllData = async () => {
+  const fetchData = async () => {
     try {
       const [sRes, slRes] = await Promise.all([api.get('/sessions/my'), api.get('/tutors/my-availability')]);
       setSessions(sRes.data.sessions || []);
       setSlots(slRes.data.slots || []);
-      setError('');
     } catch (err) { setError('Failed to load data.'); }
     finally { setLoading(false); }
   };
@@ -51,11 +54,15 @@ export default function TutorDashboard() {
     try {
       const payload = { ...profileForm };
       if (payload.courses) payload.courses = payload.courses.split(',').map(c => c.trim()).filter(Boolean);
-      if (!payload.phone || payload.phone.length !== 10 || !/^\d{10}$/.test(payload.phone)) {
-        setError('Phone number is required and must be exactly 10 digits (without +92).');
-        return;
+      if (payload.phone) {
+        if (payload.phone.length !== 10 || !/^\d{10}$/.test(payload.phone)) {
+          setError('Phone number must be exactly 10 digits (without +92).');
+          return;
+        }
+        payload.phone = '+92' + payload.phone;
+      } else {
+        payload.phone = '';
       }
-      payload.phone = '+92' + payload.phone;
       const res = await api.put('/tutors/profile', payload);
       if (updateUser && res.data.user) updateUser(res.data.user);
       setEditingProfile(false);
@@ -70,11 +77,23 @@ export default function TutorDashboard() {
     e.preventDefault();
     if (!slotForm.date || !slotForm.start_time || !slotForm.end_time) { setSlotMsg('All fields are required.'); return; }
     if (slotForm.start_time >= slotForm.end_time) { setSlotMsg('End time must be after start time.'); return; }
+
+    // Frontend past-slot validation
+    const today = getTodayStr();
+    if (slotForm.date < today) {
+      setSlotMsg('Cannot create a slot in the past. Please select today or a future date.');
+      return;
+    }
+    if (slotForm.date === today && slotForm.start_time <= getNowTimeStr()) {
+      setSlotMsg('Start time must be in the future. The selected time has already passed.');
+      return;
+    }
+
     try {
       await api.post('/tutors/availability', slotForm);
       setSlotMsg('Slot added successfully!');
       setSlotForm({ date: '', start_time: '', end_time: '', location: 'Ehsas Room' });
-      await fetchAllData();
+      fetchData();
       setTimeout(() => setSlotMsg(''), 3000);
     } catch (err) { setSlotMsg(err.response?.data?.error || 'Failed to add slot.'); }
   };
@@ -84,80 +103,32 @@ export default function TutorDashboard() {
     try {
       await api.delete(`/tutors/availability/${slotId}`);
       setSlotMsg('Slot deleted.');
-      await fetchAllData();
+      fetchData();
       setTimeout(() => setSlotMsg(''), 3000);
     } catch (err) { setSlotMsg(err.response?.data?.error || 'Failed to delete slot.'); }
   };
 
   const handleCancelSession = async (sessionId) => {
     if (!window.confirm('Are you sure you want to cancel this session?')) return;
-    setError('');
-    setSuccess('');
     try {
       await api.put(`/sessions/${sessionId}/cancel`);
-      await fetchAllData();
       setSuccess('Session cancelled.');
+      fetchData();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) { setError(err.response?.data?.error || 'Failed to cancel session.'); }
   };
 
   const handleCompleteSession = async (sessionId) => {
     if (!window.confirm('Mark this session as completed?')) return;
-    setError('');
-    setSuccess('');
     try {
       await api.put(`/sessions/${sessionId}/complete`);
-      await fetchAllData();
       setSuccess('Session marked as completed.');
+      fetchData();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) { setError(err.response?.data?.error || 'Failed to complete session.'); }
   };
 
-  // ── FR9: Reschedule Session ──
-  const handleStartReschedule = async (session) => {
-    setError('');
-    setSuccess('');
-    setReschedulingSession(session);
-    setLoadingRescheduleSlots(true);
-    setRescheduleSlots([]);
-    try {
-      // For tutor reschedule, show the tutor's own open slots (excluding current slot)
-      const res = await api.get(`/tutors/my-availability`);
-      const availableSlots = (res.data.slots || []).filter(s => s.status === 'open' && s.id !== session.slot?.id);
-      setRescheduleSlots(availableSlots);
-    } catch (err) {
-      setError('Failed to load available slots for rescheduling.');
-    } finally {
-      setLoadingRescheduleSlots(false);
-    }
-  };
-
-  const handleConfirmReschedule = async (newSlotId) => {
-    if (!window.confirm('Reschedule to this slot? The current session will be cancelled and a new one will be booked.')) return;
-    setRescheduleLoading(true);
-    setError('');
-    setSuccess('');
-    try {
-      await api.put(`/sessions/${reschedulingSession.id}/reschedule`, { new_slot_id: newSlotId });
-      setReschedulingSession(null);
-      setRescheduleSlots([]);
-      await fetchAllData();
-      setSuccess('Session rescheduled successfully!');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to reschedule session.');
-    } finally {
-      setRescheduleLoading(false);
-    }
-  };
-
-  const handleCancelReschedule = () => {
-    setReschedulingSession(null);
-    setRescheduleSlots([]);
-    setError('');
-  };
-
-  const upcoming  = sessions.filter(s => s.status === 'confirmed');
+  const upcoming = sessions.filter(s => s.status === 'confirmed');
   const completed = sessions.filter(s => s.status === 'completed');
   const cancelled = sessions.filter(s => s.status === 'cancelled');
   const openSlots = slots.filter(s => s.status === 'open');
@@ -211,7 +182,6 @@ export default function TutorDashboard() {
                     <p><strong>Location:</strong> {s.slot?.location || 'N/A'}</p>
                   </div>
                   <div className="session-actions">
-                    <button className="btn btn-sm btn-primary-outline" onClick={() => handleStartReschedule(s)}>Reschedule</button>
                     <button className="btn btn-sm btn-success-outline" onClick={() => handleCompleteSession(s.id)}>Mark Complete</button>
                     <button className="btn btn-sm btn-danger-outline" onClick={() => handleCancelSession(s.id)}>Cancel Session</button>
                   </div>
@@ -245,7 +215,7 @@ export default function TutorDashboard() {
             <div className="add-slot-form">
               <h3 className="form-subtitle">Add New Slot</h3>
               <form onSubmit={handleAddSlot} className="inline-form">
-                <div className="form-group"><label>Date</label><input className="form-input" type="date" value={slotForm.date} onChange={(e) => setSlotForm({ ...slotForm, date: e.target.value })} required /></div>
+                <div className="form-group"><label>Date</label><input className="form-input" type="date" min={getTodayStr()} value={slotForm.date} onChange={(e) => setSlotForm({ ...slotForm, date: e.target.value })} required /></div>
                 <div className="form-group"><label>Start Time</label><input className="form-input" type="time" value={slotForm.start_time} onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })} required /></div>
                 <div className="form-group"><label>End Time</label><input className="form-input" type="time" value={slotForm.end_time} onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })} required /></div>
                 <div className="form-group"><label>Location</label><input className="form-input" type="text" placeholder="Ehsas Room" value={slotForm.location} onChange={(e) => setSlotForm({ ...slotForm, location: e.target.value })} /></div>
@@ -295,9 +265,9 @@ export default function TutorDashboard() {
                         <label>Phone Number</label>
                         <div className="phone-group">
                           <span className="phone-prefix">+92</span>
-                          <input className="form-input" placeholder="3001234567" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} maxLength={10} required />
+                          <input className="form-input" placeholder="3001234567" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} maxLength={10} />
                         </div>
-                        <span className="form-hint">10 digits without +92 prefix (required)</span>
+                        <span className="form-hint">10 digits without +92 prefix</span>
                       </div>
                       <div className="form-group"><label>Department</label><input className="form-input" placeholder="e.g., Computer Science" value={profileForm.department} onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })} /></div>
                       <div className="form-group"><label>Bio</label><textarea className="form-input" rows={3} placeholder="Tell students about yourself..." value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} /></div>
@@ -305,7 +275,7 @@ export default function TutorDashboard() {
                     </div>
                   ) : (
                     <div className="profile-info-grid">
-                      <div className="profile-info-item"><span className="info-label">Phone</span><span className="info-value">{user?.phone}</span></div>
+                      <div className="profile-info-item"><span className="info-label">Phone</span><span className="info-value">{user?.phone || 'Not provided'}</span></div>
                       <div className="profile-info-item"><span className="info-label">Department</span><span className="info-value">{user?.department || 'Not specified'}</span></div>
                       <div className="profile-info-item"><span className="info-label">Bio</span><span className="info-value">{user?.bio || 'No bio yet.'}</span></div>
                       <div className="profile-info-item"><span className="info-label">Courses</span><span className="info-value">{Array.isArray(user?.courses) ? user.courses.join(', ') : (user?.courses || 'Not specified')}</span></div>
@@ -315,56 +285,6 @@ export default function TutorDashboard() {
               </div>
             </div>
           </section>
-        )}
-
-        {/* ── FR9: Reschedule Modal / Panel ── */}
-        {reschedulingSession && (
-          <div className="reschedule-overlay" onClick={handleCancelReschedule}>
-            <div className="reschedule-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="reschedule-header">
-                <h2>Reschedule Session</h2>
-                <button className="btn btn-sm btn-outline" onClick={handleCancelReschedule}>✕ Close</button>
-              </div>
-
-              <div className="reschedule-current">
-                <h3>Current Session</h3>
-                <div className="session-details">
-                  <p><strong>Course:</strong> {reschedulingSession.course_code}</p>
-                  <p><strong>Student:</strong> {reschedulingSession.student_name || 'N/A'}</p>
-                  <p><strong>Current Date:</strong> {reschedulingSession.slot?.date || 'N/A'}</p>
-                  <p><strong>Current Time:</strong> {reschedulingSession.slot?.start_time || 'N/A'} — {reschedulingSession.slot?.end_time || 'N/A'}</p>
-                  <p><strong>Location:</strong> {reschedulingSession.slot?.location || 'N/A'}</p>
-                </div>
-              </div>
-
-              <div className="reschedule-slots">
-                <h3>Select a New Slot</h3>
-                {loadingRescheduleSlots ? (
-                  <div className="loading-screen"><div className="spinner"></div><p>Loading available slots...</p></div>
-                ) : rescheduleSlots.length === 0 ? (
-                  <div className="empty-state"><span className="empty-icon">🕐</span><h3>No available slots</h3><p>You have no other open slots. Add new availability first.</p></div>
-                ) : (
-                  <div className="slots-grid">
-                    {rescheduleSlots.map(slot => (
-                      <div key={slot.id} className="slot-card slot-card-reschedule">
-                        <div className="slot-date">{slot.date}</div>
-                        <div className="slot-time">{slot.start_time} — {slot.end_time}</div>
-                        <div className="slot-loc">{slot.location}</div>
-                        <button
-                          className="btn btn-sm btn-gold"
-                          style={{ marginTop: '.5rem' }}
-                          onClick={() => handleConfirmReschedule(slot.id)}
-                          disabled={rescheduleLoading}
-                        >
-                          {rescheduleLoading ? 'Rescheduling...' : 'Reschedule Here'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         )}
       </main>
     </div>
